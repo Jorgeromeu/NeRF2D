@@ -8,7 +8,7 @@ import rerun_util as ru
 from nerf2d_dataset import NeRFDataset2D, read_image_folder
 from transform2d import Transform2D
 
-folder = Path('/home/jorge/repos/NeRF2D/data/views')
+folder = '/home/jorge/repos/NeRF2D/data/views'
 visualize_rays = True
 visualize_cameras = True
 image_width = 10
@@ -18,8 +18,7 @@ ray_length = 1.6
 rr.init('vis_dataset_2d', spawn=True)
 
 # read dataset
-ims, poses, focal = read_image_folder(folder)
-
+ims, poses, focal = read_image_folder(Path(folder))
 dataset = NeRFDataset2D(ims, poses, focal)
 
 # world transform

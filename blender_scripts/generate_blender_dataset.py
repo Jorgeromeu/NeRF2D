@@ -87,7 +87,7 @@ def render_from_cameras(cams, folder: Path):
 if __name__ == '__main__':
     N = 10
     radius = 4
-    focal = 20
+    focal_px = 20
     res = 20
     folder_path = '/home/jorge/repos/NeRF2D/data/views'
     render = True
@@ -114,7 +114,7 @@ if __name__ == '__main__':
     # positions, angles = sample_sphere(radius, N)
     positions, angles = uniform_spaced_circle(radius, N)
 
-    cams = place_cameras(positions, angles, focal)
+    cams = place_cameras(positions, angles, focal_px)
 
     if render:
         render_from_cameras(cams, folder)
@@ -135,11 +135,9 @@ if __name__ == '__main__':
         transforms.append(c2w)
 
     transforms_dict = {
-        'focal': cams[0].data.lens,
-        'height': cams[0].data.sensor_height,
-        'width': cams[0].data.sensor_width,
+        'focal': focal_px,
         'frames': [{'transform_matrix': transforms[i].tolist()} for i in range(N)]
     }
 
     with open(file_path, 'w') as json_file:
-        json.dump(transforms_dict, json_file)
+        json.dump(transforms_dict, json_file, indent=2)

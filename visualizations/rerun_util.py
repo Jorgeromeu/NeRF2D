@@ -5,8 +5,8 @@ from scipy.spatial.transform import Rotation
 from transform2d import Transform2D
 
 # Common camera coordinate systems
-CAM_2D = rr.ViewCoordinates.FUR
-CAM_3D_BLENDER = rr.ViewCoordinates.RIGHT_HAND_Y_UP
+CAM_2D = rr.ViewCoordinates.FUR  # camera faces x-axis
+CAM_3D_BLENDER = rr.ViewCoordinates.RIGHT_HAND_Y_UP  # camera faces -z axis, y up
 
 def embed_Points2D(points: torch.Tensor):
     """
@@ -34,4 +34,4 @@ def embed_Transform2D(transform: Transform2D):
     # rotation is 3D rotation around z-axis as quaternion
     rotation_3d_quat = Rotation.from_euler('z', rotation.item(), degrees=False).as_quat()
 
-    return rr.Transform3D(translation=translation_3d, rotation=rotation_3d_quat)
+    return rr.Transform3D(translation=translation_3d, rotation=rotation_3d_quat, scale=1)
