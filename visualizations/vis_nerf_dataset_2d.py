@@ -49,7 +49,7 @@ if visualize_cameras:
         rr.log(
             f'world/cam{i}',
             rr.Pinhole(
-                height=dataset.h,
+                height=dataset.image_resolution,
                 width=image_width,
                 focal_length=focal,
                 camera_xyz=rr.ViewCoordinates.FUR

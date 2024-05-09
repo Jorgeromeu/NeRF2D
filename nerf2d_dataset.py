@@ -1,9 +1,10 @@
 import json
 from pathlib import Path
 
+import pytorch_lightning as pl
 import torch
 from einops import rearrange
-from torch.utils.data import TensorDataset
+from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 
 from nerf2d import get_rays2d
@@ -40,10 +41,10 @@ class NeRFDataset2D(TensorDataset):
         self.poses = poses
         self.focal_length = focal_length
 
-        self.h = self.ims.shape[2]
+        self.image_resolution = self.ims.shape[2]
 
         # get a ray for each pixel
-        rays = [get_rays2d(self.h, self.focal_length, c2w) for c2w in self.poses]
+        rays = [get_rays2d(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
         origins = torch.stack([ray[0] for ray in rays])
         dirs = torch.stack([ray[1] for ray in rays])
 
@@ -57,3 +58,21 @@ class NeRFDataset2D(TensorDataset):
 
         # each entry is a tuple of (origin, direction, pixel_color)
         super().__init__(origins_flat, dirs_flat, colors_flat)
+
+class NeRF2D_Datamodule(pl.LightningDataModule):
+
+    def __init__(self, folder: Path, batch_size=100):
+        super().__init__()
+
+        self.save_hyperparameters(ignore=['folder'])
+
+        # read images and poses
+        self.ims, self.poses, self.focal = read_image_folder(folder)
+        self.dataset = NeRFDataset2D(self.ims, self.poses, self.focal)
+
+        # save additional hyperparams
+        self.hparams.n_train_images = len(self.dataset)
+        self.hparams.image_resolution = self.dataset.image_resolution
+
+    def train_dataloader(self):
+        return DataLoader(self.dataset, shuffle=True, batch_size=self.hparams.batch_size)
