@@ -2,7 +2,7 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torchmetrics
-from einops import repeat, rearrange
+from einops import repeat, rearrange, einsum
 from torch import nn, Tensor
 
 def pixel_centers(lo, hi, n_pixels):
@@ -45,20 +45,45 @@ def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
 
     return origins, directions
 
+def cumprod_exclusive(tensor: torch.Tensor) -> torch.Tensor:
+    dim = -1
+    cumprod = torch.cumprod(tensor, dim)
+    cumprod = torch.roll(cumprod, 1, dim)
+    cumprod[..., 0] = 1.
+
+    return cumprod
+
+def volume_rendering_weights(ts, densities):
+    """
+    Compute volume rendering weights for a batch of rays
+    :param ts: T
+    :param densities: N, T
+    :return: weights: N, T
+    """
+
+    delta = torch.cat([ts[1:] - ts[:-1], torch.Tensor([1]).to(ts)])
+    delta_density = einsum(densities, delta, 'n t, t -> n t')
+    alpha = 1 - torch.exp(-delta_density)
+    transmittances = cumprod_exclusive(1 - alpha + 1e-10)
+    weights = alpha * transmittances
+
+    return weights
+
 class NeRF2D_LightningModule(pl.LightningModule):
 
     def __init__(
             self,
             lr=1e-4,
-            t_near=2,
-            t_far=6
+            t_near=2.,
+            t_far=6.,
+            n_steps=64
     ):
         super().__init__()
 
         self.save_hyperparameters()
 
         # dummy model
-        self.model = nn.Linear(3, 4)
+        self.model = nn.Linear(2, 4)
 
         # metrics
         self.train_mse = torchmetrics.MeanSquaredError()
@@ -91,8 +116,39 @@ class NeRF2D_LightningModule(pl.LightningModule):
         :return: rendered-colors at rays N, 3
         """
 
-        # TODO replace with volume rendering
-        return F.sigmoid(torch.randn(origins.shape[0], 3, requires_grad=True).to(origins))
+        # query points
+        query_points, ts = self.compute_query_points(origins, directions)
+
+        # TODO query network in chunks
+        points_flat = rearrange(query_points, 'n t d -> (n t) d')
+        outputs_flat = self.model(points_flat)
+        outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
+        colors = outputs[:, :, 0:3]
+        densities = outputs[:, :, 3]
+
+        # compute volume rendering weights
+        weights = volume_rendering_weights(ts, densities)
+
+        # render colors by weighting samples
+        rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
+
+        return rendered_colors
+
+    def compute_query_points(self, origins: Tensor, directions: Tensor):
+        """
+        Compute query points and depth values for a batch of rays
+        :param origins: N, 3
+        :param directions: N, 3
+        :return: query points N, 3 and depth values N
+        """
+
+        # evenly space t-values from t_near to t_far
+        ts = torch.linspace(self.hparams.t_near, self.hparams.t_far, self.hparams.n_steps).to(origins)
+
+        # compute query points for each ray
+        query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
+
+        return query_points, ts
 
     def training_step(self, batch, batch_idx):
         origins, directions, colors = batch
