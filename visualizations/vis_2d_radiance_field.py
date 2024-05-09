@@ -79,7 +79,7 @@ def visualize_rendering(res, f, c2w, volume, nerf):
 
 rr.init('render_volume', spawn=True)
 
-volume = DummyVolume(1)
+volume = DummyVolume(10)
 nerf = NeRF2D_LightningModule(lr=1e-4, t_near=0.2, t_far=3, n_steps=64)
 
 def uniform_spaced_circle(radius, num_points):
