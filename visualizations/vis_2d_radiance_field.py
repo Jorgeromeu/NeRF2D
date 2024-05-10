@@ -27,10 +27,10 @@ def visualize_volume(
 
     # sample volume at grid points
     coords_flat = rearrange(coords, 'h w c -> (h w) c')
-    colors_flat = volume(coords_flat)
+    outputs_flat = volume(coords_flat).detach().numpy()
 
     # visualize points
-    rr.log(volume_name, rr.Points3D(ru.embed_Points2D(coords_flat), colors=colors_flat))
+    rr.log(volume_name, rr.Points3D(ru.embed_Points2D(coords_flat), colors=outputs_flat))
 
 def visualize_rendering(res, f, c2w, volume, nerf):
     # visualize volume
@@ -65,8 +65,8 @@ def visualize_rendering(res, f, c2w, volume, nerf):
         'points',
         rr.Points3D(
             ru.embed_Points2D(points_flat),
-            radii=weights_flat * 0.5,
-            colors=outputs_flat[:, 0:3]
+            radii=weights_flat.detach().numpy() * 0.5,
+            colors=outputs_flat[:, 0:3].detach().numpy()
         )
     )
 
@@ -80,7 +80,7 @@ def visualize_rendering(res, f, c2w, volume, nerf):
 rr.init('render_volume', spawn=True)
 
 volume = DummyVolume(10)
-nerf = NeRF2D_LightningModule(lr=1e-4, t_near=0.2, t_far=3, n_steps=64)
+nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/epoch=189-step=19000.ckpt').cpu()
 
 def uniform_spaced_circle(radius, num_points):
     angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
@@ -92,7 +92,7 @@ def uniform_spaced_circle(radius, num_points):
 
     return pos, angles + np.pi
 
-pos, angles = uniform_spaced_circle(1, 100)
+pos, angles = uniform_spaced_circle(1, 1)
 
 for i in range(len(pos)):
     translation = torch.tensor(pos[i])

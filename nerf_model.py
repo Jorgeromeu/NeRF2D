@@ -10,7 +10,8 @@ class SimpleNeRF(nn.Module):
 
     def __init__(
             self,
-            d_input: int = 3,
+            d_input: int = 2,
+            d_output: int = 4,
             n_layers: int = 8,
             d_hidden: int = 256,
     ):

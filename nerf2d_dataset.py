@@ -10,18 +10,18 @@ from torchvision.io import read_image
 from nerf2d import get_rays2d
 
 def read_image_folder(path: Path):
-    transforms_json = json.load(open(path / 'transforms.json'))
+    with open(path / 'transforms.json') as f:
+        transforms_json = json.load(f)
 
     # read poses
     poses = torch.stack([torch.Tensor(frame_data['transform_matrix']) for frame_data in transforms_json['frames']])
 
     # read images
     ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
-    ims = rearrange(ims, 'n c h w -> n c h w').squeeze(-1)
+    # drop alpha channel and nromalize to floats
+    ims = ims[:, :3, :, :] / 255
 
     focal = transforms_json['focal']
-
-    # TODO throw away alpha channel and normalize images
 
     return ims, poses, focal
 
@@ -32,27 +32,29 @@ class NeRFDataset2D(TensorDataset):
 
     def __init__(self, images: torch.Tensor, poses: torch.Tensor, focal_length: float):
         """
-        :param images: Images in dataset N, C, H
+        :param images: Images in dataset N, C, H, W
         :param poses: poses in dataset N, 3, 3
         :param focal_length: focal_length of cameras
         """
 
-        self.ims = images
+        # save poses, focal length and images
         self.poses = poses
         self.focal_length = focal_length
+        self.ims = images
 
-        self.image_resolution = self.ims.shape[2]
+        self.image_resolution = images.shape[2]
 
         # get a ray for each pixel
-        rays = [get_rays2d(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
+        # TODO hardcoded
+        rays = [get_rays2d(100, self.focal_length, c2w) for c2w in self.poses]
         origins = torch.stack([ray[0] for ray in rays])
         dirs = torch.stack([ray[1] for ray in rays])
 
-        # remove alpha channel
-        ims = self.ims[:, 0:3, :]
+        # remove width dimension
+        ims_no_w = rearrange(self.ims, 'n c h 1 -> n c h')
 
         # flatten all images and rays
-        colors_flat = rearrange(ims, 'n c h -> (n h) c')
+        colors_flat = rearrange(ims_no_w, 'n c h -> (n h) c')
         origins_flat = rearrange(origins, 'n h d -> (n h) d')
         dirs_flat = rearrange(dirs, 'n h d -> (n h) d')
 
@@ -68,11 +70,20 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
 
         # read images and poses
         self.ims, self.poses, self.focal = read_image_folder(folder)
-        self.dataset = NeRFDataset2D(self.ims, self.poses, self.focal)
+        self.h = self.ims.shape[2]
+
+        self.test_im = self.ims[0]
+        self.test_pose = self.poses[0]
+
+        self.train_dataset = NeRFDataset2D(self.ims[1:], self.poses[1:], self.focal)
+        self.test_dataset = NeRFDataset2D(self.test_im.unsqueeze(0), self.test_pose.unsqueeze(0), self.focal)
 
         # save additional hyperparams
-        self.hparams.n_train_images = len(self.dataset)
-        self.hparams.image_resolution = self.dataset.image_resolution
+        self.hparams.n_train_images = len(self.train_dataset)
+        self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.dataset, shuffle=True, batch_size=self.hparams.batch_size)
+        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size)
+
+    def val_dataloader(self):
+        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size)

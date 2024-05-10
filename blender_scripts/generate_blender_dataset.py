@@ -85,10 +85,10 @@ def render_from_cameras(cams, folder: Path):
         bpy.ops.render.render(write_still=True)  # Render the image
 
 if __name__ == '__main__':
-    N = 10
+    N = 100
     radius = 4
-    focal_px = 20
-    res = 20
+    focal_px = 100
+    res = 100
     folder_path = '/home/jorge/repos/NeRF2D/data/views'
     render = True
     collection_name = 'cameras'

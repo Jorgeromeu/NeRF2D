@@ -1,9 +1,11 @@
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-import torchmetrics
+import wandb
 from einops import repeat, rearrange, einsum
-from torch import nn, Tensor
+from torch import Tensor
+
+from nerf_model import SimpleNeRF
 
 def pixel_centers(lo, hi, n_pixels):
     """
@@ -35,7 +37,7 @@ def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
 
     # normalize directions
     directions = F.normalize(torch.stack([xs, ys], dim=1), dim=1)
-    directions = directions.__reversed__()
+    directions = directions.__reversed__().to(c2w)
 
     # origin is c2w_translation for all rays
     origins = repeat(trans_c2w, 'd -> n d', n=height)
@@ -69,6 +71,7 @@ def volume_rendering_weights(ts, densities):
 
     return weights
 
+# noinspection PyAttributeOutsideInit
 class NeRF2D_LightningModule(pl.LightningModule):
 
     def __init__(
@@ -76,33 +79,34 @@ class NeRF2D_LightningModule(pl.LightningModule):
             lr=1e-4,
             t_near=2.,
             t_far=6.,
-            n_steps=64
+            n_steps=64,
+            n_gt_poses=100
     ):
         super().__init__()
 
         self.save_hyperparameters()
 
         # dummy model
-        self.model = nn.Linear(2, 4)
+        self.model = SimpleNeRF(d_input=2, d_output=4, n_layers=4, d_hidden=128)
 
         # metrics
-        self.train_mse = torchmetrics.MeanSquaredError()
+        self.criterion = torch.nn.MSELoss()
 
-    def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
+    def compute_query_points(self, origins: Tensor, directions: Tensor):
         """
-        Render a view from a 2D camera
-        :param height:
-        :param focal_length_px:
-        :param c2w:
-        :return:
+        Compute query points and depth values for a batch of rays
+        :param origins: N, 3
+        :param directions: N, 3
+        :return: query points N, 3 and depth values N
         """
 
-        # render rays for view
-        colors = self.forward(*get_rays2d(height, focal_length_px, c2w))
+        # evenly space t-values from t_near to t_far
+        ts = torch.linspace(self.hparams.t_near, self.hparams.t_far, self.hparams.n_steps).to(origins)
 
-        # reshape as image
-        colors_im = rearrange(colors, 'h c -> h 1 c').detach().numpy()
-        return colors_im
+        # compute query points for each ray
+        query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
+
+        return query_points, ts
 
     def forward(
             self,
@@ -134,34 +138,81 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return rendered_colors
 
-    def compute_query_points(self, origins: Tensor, directions: Tensor):
+    def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
         """
-        Compute query points and depth values for a batch of rays
-        :param origins: N, 3
-        :param directions: N, 3
-        :return: query points N, 3 and depth values N
+        Render a view from a 2D camera
+        :param height:
+        :param focal_length_px:
+        :param c2w:
+        :return:
         """
 
-        # evenly space t-values from t_near to t_far
-        ts = torch.linspace(self.hparams.t_near, self.hparams.t_far, self.hparams.n_steps).to(origins)
+        # render rays for view
+        origins, directions = get_rays2d(height, focal_length_px, c2w)
+        origins = origins.to(self.device)
+        directions = directions.to(self.device)
 
-        # compute query points for each ray
-        query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
+        colors = self.forward(origins, directions)
 
-        return query_points, ts
+        # reshape as image
+        colors_im = rearrange(colors, 'h c -> c h 1')
+        return colors_im
+
+    def render_views(self, height: int, focal_length_px: float, c2ws: Tensor):
+        """
+        Render a list of views and concatenate them into 2D image
+        :param height:
+        :param focal_length_px:
+        :param c2ws: N, 3, 3
+        :return:
+        """
+
+        renders = torch.stack([self.render_view(height, focal_length_px, pose)
+                               for pose in c2ws])
+
+        # concatenate renders to image
+        renders_im = rearrange(renders, 'w c h 1 -> h w c')
+
+        return renders_im
 
     def training_step(self, batch, batch_idx):
         origins, directions, colors = batch
-
         # forward pass
-        colors_pred = self.nerf_forward(origins, directions)
-
+        colors_pred = self(origins, directions)
         # compute loss
-        loss = self.train_mse(colors_pred, colors)
-
+        loss = self.criterion(colors_pred, colors)
         self.log('train_loss', loss)
-
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        origins, directions, colors = batch
+        # forward pass
+        colors_pred = self(origins, directions)
+        # compute loss
+        loss = self.criterion(colors_pred, colors)
+        self.log('val_loss', loss)
+        return loss
+
+    def on_train_start(self) -> None:
+        self.val_height = self.trainer.datamodule.h
+        self.val_focal = self.trainer.datamodule.focal
+        poses_all = self.trainer.datamodule.poses
+        self.val_poses = poses_all[::len(poses_all) // self.hparams.n_gt_poses]
+
+        gt_renders = self.trainer.datamodule.ims[::len(poses_all) // self.hparams.n_gt_poses]
+        self.gt_renders = rearrange(gt_renders, 'w c h 1 -> h w c').detach().cpu().numpy()
+
+        self.trainer.logger.experiment.log({
+            'gt_renders': wandb.Image(self.gt_renders)
+        })
+
+    def on_train_epoch_end(self) -> None:
+        if self.current_epoch % 10 == 0:
+            renders = self.render_views(self.val_height, self.val_focal, self.val_poses).detach().cpu().numpy()
+
+            self.trainer.logger.experiment.log({
+                'renders': wandb.Image(renders)
+            })
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
