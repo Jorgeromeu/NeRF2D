@@ -9,8 +9,8 @@ from transform2d import Transform2D
 
 rr.init('camera_rays', spawn=True)
 
-height = 30
-focal = 30
+height = 100
+focal = 100
 fake_width = 3
 ray_len = 0.1
 

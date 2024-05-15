@@ -68,15 +68,15 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
 
         self.save_hyperparameters(ignore=['folder'])
 
-        # read images and poses
-        self.ims, self.poses, self.focal = read_image_folder(folder)
-        self.h = self.ims.shape[2]
+        # read training images and poses
+        self.train_ims, self.train_poses, self.train_focal = read_image_folder(folder / 'train')
+        self.train_height = self.train_ims.shape[2]
+        self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal)
 
-        self.test_im = self.ims[0]
-        self.test_pose = self.poses[0]
-
-        self.train_dataset = NeRFDataset2D(self.ims[1:], self.poses[1:], self.focal)
-        self.test_dataset = NeRFDataset2D(self.test_im.unsqueeze(0), self.test_pose.unsqueeze(0), self.focal)
+        # read test images and poses
+        self.test_ims, self.test_poses, self.test_focal = read_image_folder(folder / 'test')
+        self.test_height = self.test_ims.shape[2]
+        self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal)
 
         # save additional hyperparams
         self.hparams.n_train_images = len(self.train_dataset)

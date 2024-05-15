@@ -160,3 +160,8 @@ cython_debug/
 .idea/
 
 lightning_logs/
+
+data/
+checkpoints/
+wandb/
+lightning_logs/

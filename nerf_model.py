@@ -11,6 +11,7 @@ class SimpleNeRF(nn.Module):
     def __init__(
             self,
             d_input: int = 2,
+            d_emb: int = 8,
             d_output: int = 4,
             n_layers: int = 8,
             d_hidden: int = 256,
@@ -19,12 +20,12 @@ class SimpleNeRF(nn.Module):
 
         self.d_input = d_input
 
+        # positional encoding
+        self.pe = PositionalEncoding(d_emb)
+
         # activation functions
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
-
-        # positional encoding
-        self.pe = PositionalEncoding(d_input)
 
         # Create model layers
         self.layers = nn.ModuleList(

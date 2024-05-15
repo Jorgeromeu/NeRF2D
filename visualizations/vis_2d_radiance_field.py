@@ -8,15 +8,16 @@ from dummy_volume import DummyVolume
 from nerf2d import get_rays2d, volume_rendering_weights, NeRF2D_LightningModule
 from transform2d import Transform2D
 
-volume_res = 100
-res = 30
-f = 10
+volume_res = 500
+res = 100
+f = 100
+query_point_multiplier = 1
 
 def visualize_volume(
-        volume: DummyVolume,
         volume_name: str,
-        x_lo=-0.9, x_hi=0.9,
-        y_lo=-0.9, y_hi=0.9,
+        volume: DummyVolume,
+        x_lo=-3, x_hi=3,
+        y_lo=-3, y_hi=3,
         res=100
 ):
     # create grid
@@ -33,9 +34,6 @@ def visualize_volume(
     rr.log(volume_name, rr.Points3D(ru.embed_Points2D(coords_flat), colors=outputs_flat))
 
 def visualize_rendering(res, f, c2w, volume, nerf):
-    # visualize volume
-    visualize_volume(volume, 'volume', res=100)
-
     # visualize camera
     rr.log('camera', rr.Pinhole(height=res, width=1, focal_length=f, camera_xyz=ru.CAM_2D))
     rr.log('camera', ru.embed_Transform2D(c2w))
@@ -65,7 +63,7 @@ def visualize_rendering(res, f, c2w, volume, nerf):
         'points',
         rr.Points3D(
             ru.embed_Points2D(points_flat),
-            radii=weights_flat.detach().numpy() * 0.5,
+            radii=weights_flat.detach().numpy() * query_point_multiplier,
             colors=outputs_flat[:, 0:3].detach().numpy()
         )
     )
@@ -79,8 +77,7 @@ def visualize_rendering(res, f, c2w, volume, nerf):
 
 rr.init('render_volume', spawn=True)
 
-volume = DummyVolume(10)
-nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/epoch=189-step=19000.ckpt').cpu()
+nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v15.ckpt', t_far=6).cpu()
 
 def uniform_spaced_circle(radius, num_points):
     angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
@@ -92,7 +89,12 @@ def uniform_spaced_circle(radius, num_points):
 
     return pos, angles + np.pi
 
-pos, angles = uniform_spaced_circle(1, 1)
+pos, angles = uniform_spaced_circle(4, 100)
+
+volume = DummyVolume(density=10)
+
+# visualize volume
+visualize_volume('volume', volume, res=100)
 
 for i in range(len(pos)):
     translation = torch.tensor(pos[i])
