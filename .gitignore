@@ -165,3 +165,6 @@ data/
 checkpoints/
 wandb/
 lightning_logs/
+
+t # Custom environment files
+cv-env/
