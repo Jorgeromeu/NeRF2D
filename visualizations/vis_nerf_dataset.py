@@ -25,5 +25,3 @@ for i in range(len(ims)):
     rr.log(f'world/cam{i}', rr.Transform3D(translation=translation, mat3x3=rotation))
     rr.log(f'world/cam{i}', rr.Image(ims[i]))
 
-# rr.log('world/cam', rr.Pinhole(height=h, width=w, focal_length=f, camera_xyz=rr.ViewCoordinates.RIGHT_HAND_Y_UP))
-# rr.log('world/cam', rr.Transform3D())

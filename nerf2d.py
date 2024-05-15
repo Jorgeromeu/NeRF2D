@@ -1,9 +1,11 @@
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
-import torchmetrics
-from einops import repeat, rearrange
-from torch import nn, Tensor
+from einops import repeat, rearrange, einsum
+from torch import Tensor
+
+import wandb
+from nerf_model import SimpleNeRF
 
 def pixel_centers(lo, hi, n_pixels):
     """
@@ -35,7 +37,7 @@ def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
 
     # normalize directions
     directions = F.normalize(torch.stack([xs, ys], dim=1), dim=1)
-    directions = directions.__reversed__()
+    directions = directions.__reversed__().to(c2w)
 
     # origin is c2w_translation for all rays
     origins = repeat(trans_c2w, 'd -> n d', n=height)
@@ -45,39 +47,90 @@ def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
 
     return origins, directions
 
+def cumprod_exclusive(tensor: torch.Tensor) -> torch.Tensor:
+    dim = -1
+    cumprod = torch.cumprod(tensor, dim)
+    cumprod = torch.roll(cumprod, 1, dim)
+    cumprod[..., 0] = 1.
+
+    return cumprod
+
+def volume_rendering_weights(ts, densities):
+    """
+    Compute volume rendering weights for a batch of rays
+    :param ts: T
+    :param densities: N, T
+    :return: weights: N, T
+    """
+
+    delta = ts[1:] - ts[:-1]
+    delta = torch.cat([delta, delta[-1:]], dim=0)
+
+    delta_density = einsum(densities, delta, 'n t, t -> n t')
+    alpha = 1 - torch.exp(-delta_density)
+    transmittances = cumprod_exclusive(1 - alpha + 1e-10)
+    weights = alpha * transmittances
+
+    return weights
+
+# noinspection PyAttributeOutsideInit
 class NeRF2D_LightningModule(pl.LightningModule):
 
     def __init__(
             self,
             lr=1e-4,
-            t_near=2,
-            t_far=6
+            positional_d_emb=8,
+            n_layers=4,
+            d_hidden=128,
+            t_near=2.,
+            t_far=6.,
+            n_steps=64,
+            chunk_size=30000,
+            n_gt_poses=100
     ):
+
         super().__init__()
 
         self.save_hyperparameters()
 
         # dummy model
-        self.model = nn.Linear(3, 4)
+        self.model = SimpleNeRF(d_input=2, d_output=4, d_emb=positional_d_emb, n_layers=n_layers, d_hidden=d_hidden)
 
         # metrics
-        self.train_mse = torchmetrics.MeanSquaredError()
+        self.criterion = torch.nn.MSELoss()
 
-    def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
+    def compute_query_points(self, origins: Tensor, directions: Tensor):
         """
-        Render a view from a 2D camera
-        :param height:
-        :param focal_length_px:
-        :param c2w:
-        :return:
+        Compute query points and depth values for a batch of rays
+        :param origins: N, 3
+        :param directions: N, 3
+        :return: query points N, 3 and depth values N
         """
 
-        # render rays for view
-        colors = self.forward(*get_rays2d(height, focal_length_px, c2w))
+        # evenly space t-values from t_near to t_far
+        ts = torch.linspace(self.hparams.t_near,
+                            self.hparams.t_far,
+                            self.hparams.n_steps).to(origins)
 
-        # reshape as image
-        colors_im = rearrange(colors, 'h c -> h 1 c').detach().numpy()
-        return colors_im
+        # compute query points for each ray
+        query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
+
+        return query_points, ts
+
+    def query_network_chunked(self, query_points: Tensor):
+
+        if query_points.shape[0] <= self.hparams.chunk_size:
+            return self.model(query_points)
+
+        n_chunks = len(query_points) // self.hparams.chunk_size + 1
+        chunks = torch.chunk(query_points, n_chunks, dim=0)
+
+        outputs = []
+        for chunk in chunks:
+            out = self.model(chunk)
+            outputs.append(out)
+
+        return torch.cat(outputs, dim=0)
 
     def forward(
             self,
@@ -91,21 +144,95 @@ class NeRF2D_LightningModule(pl.LightningModule):
         :return: rendered-colors at rays N, 3
         """
 
-        # TODO replace with volume rendering
-        return F.sigmoid(torch.randn(origins.shape[0], 3, requires_grad=True).to(origins))
+        # query points
+        query_points, ts = self.compute_query_points(origins, directions)
+
+        # TODO query network in chunks
+        points_flat = rearrange(query_points, 'n t d -> (n t) d')
+        outputs_flat = self.query_network_chunked(points_flat)
+        outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
+        colors = outputs[:, :, 0:3]
+        densities = outputs[:, :, 3]
+
+        # compute volume rendering weights
+        weights = volume_rendering_weights(ts, densities)
+
+        # render colors by weighting samples
+        rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
+
+        return rendered_colors
+
+    def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
+        """
+        Render a view from a 2D camera
+        :param height:
+        :param focal_length_px:
+        :param c2w:
+        :return:
+        """
+
+        # render rays for view
+        origins, directions = get_rays2d(height, focal_length_px, c2w)
+        origins = origins.to(self.device)
+        directions = directions.to(self.device)
+
+        colors = self.forward(origins, directions)
+
+        # reshape as image
+        colors_im = rearrange(colors, 'h c -> c h 1')
+        return colors_im
 
     def training_step(self, batch, batch_idx):
         origins, directions, colors = batch
-
         # forward pass
-        colors_pred = self.nerf_forward(origins, directions)
+        colors_pred = self(origins, directions)
 
         # compute loss
-        loss = self.train_mse(colors_pred, colors)
-
+        loss = self.criterion(colors_pred, colors)
         self.log('train_loss', loss)
+        return loss
 
+    def validation_step(self, batch, batch_idx):
+        origins, directions, colors = batch
+        # forward pass
+        colors_pred = self(origins, directions)
+
+        self.rendered_views.append(colors_pred)
+
+        # compute loss
+        loss = self.criterion(colors_pred, colors)
+        self.log('val_loss', loss)
         return loss
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+
+    # Logging Methods
+
+    def on_validation_epoch_end(self) -> None:
+
+        # stack validation renders into a single image
+        all_renders = torch.stack(self.rendered_views, dim=1).detach().cpu()
+
+        self.trainer.logger.experiment.log({
+            'renders': wandb.Image(all_renders.numpy())
+        })
+
+    def on_validation_epoch_start(self) -> None:
+        # clear validation renders for epoch
+        self.rendered_views = []
+
+    def on_train_start(self) -> None:
+        # log ground-truth renders
+        val_dataloader = self.trainer.val_dataloaders
+
+        gt_views = []
+        for batch in val_dataloader:
+            _, _, colors = batch
+            gt_views.append(colors)
+
+        gt_all = torch.stack(gt_views, dim=1).detach().cpu()
+
+        self.trainer.logger.experiment.log({
+            'renders_gt': wandb.Image(gt_all.numpy())
+        })
