@@ -5,7 +5,7 @@ from einops import repeat, rearrange, einsum
 from torch import Tensor
 
 import wandb
-from nerf_model import SimpleNeRF
+from nerf_model import NeRF, SimpleNeRF
 
 def pixel_centers(lo, hi, n_pixels):
     """
@@ -47,6 +47,14 @@ def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
 
     return origins, directions
 
+def sample_stratified(near, far, n_samples):
+    bin_borders = torch.linspace(near, far, n_samples + 1)
+    lowers = bin_borders[:-1]
+    bin_width = (far - near) / n_samples
+
+    ts = torch.rand(n_samples) * bin_width + lowers
+    return ts
+
 def cumprod_exclusive(tensor: torch.Tensor) -> torch.Tensor:
     dim = -1
     cumprod = torch.cumprod(tensor, dim)
@@ -79,7 +87,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
     def __init__(
             self,
             lr=1e-4,
-            positional_d_emb=8,
+            n_freqs_pos=8,
             n_layers=4,
             d_hidden=128,
             t_near=2.,
@@ -94,7 +102,16 @@ class NeRF2D_LightningModule(pl.LightningModule):
         self.save_hyperparameters()
 
         # dummy model
-        self.model = SimpleNeRF(d_input=2, d_output=4, d_emb=positional_d_emb, n_layers=n_layers, d_hidden=d_hidden)
+        self.model = SimpleNeRF(d_input=2, d_emb=n_freqs_pos, n_layers=n_layers, d_hidden=d_hidden)
+        self.model = NeRF(
+            d_pos_input=2,
+            d_dir_input=1,
+            n_freqs_position=n_freqs_pos,
+            n_freqs_direction=4,
+            n_layers=n_layers,
+            d_hidden=d_hidden,
+            skip_indices=[]
+        )
 
         # metrics
         self.criterion = torch.nn.MSELoss()
@@ -107,20 +124,23 @@ class NeRF2D_LightningModule(pl.LightningModule):
         :return: query points N, 3 and depth values N
         """
 
-        # evenly space t-values from t_near to t_far
-        ts = torch.linspace(self.hparams.t_near,
-                            self.hparams.t_far,
-                            self.hparams.n_steps).to(origins)
+        # stratified sample t-points
+        ts = sample_stratified(self.hparams.t_near,
+                               self.hparams.t_far,
+                               self.hparams.n_steps).to(origins)
 
         # compute query points for each ray
         query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
+        query_dirs = repeat(directions, 'b d -> b t d', t=len(ts))
 
-        return query_points, ts
+        angles = torch.atan2(query_dirs[:, :, 1], query_dirs[:, :, 0]).unsqueeze(-1)
+
+        return angles, query_points, ts
 
     def query_network_chunked(self, query_points: Tensor):
 
         if query_points.shape[0] <= self.hparams.chunk_size:
-            return self.model(query_points)
+            return self.model(query_points, None)
 
         n_chunks = len(query_points) // self.hparams.chunk_size + 1
         chunks = torch.chunk(query_points, n_chunks, dim=0)
@@ -145,11 +165,13 @@ class NeRF2D_LightningModule(pl.LightningModule):
         """
 
         # query points
-        query_points, ts = self.compute_query_points(origins, directions)
+        query_angles, query_points, ts = self.compute_query_points(origins, directions)
 
         # TODO query network in chunks
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
-        outputs_flat = self.query_network_chunked(points_flat)
+        angles_flat = rearrange(query_angles, 'n t d -> (n t) d')
+        # outputs_flat = self.query_network_chunked(points_flat)
+        outputs_flat = self.model(points_flat, angles_flat)
         outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
         colors = outputs[:, :, 0:3]
         densities = outputs[:, :, 3]

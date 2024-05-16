@@ -1,12 +1,10 @@
-import numpy as np
 import rerun as rr
 import torch
 from einops import rearrange, einsum
 
 import rerun_util as ru
 from dummy_volume import DummyVolume
-from nerf2d import get_rays2d, volume_rendering_weights, NeRF2D_LightningModule
-from transform2d import Transform2D
+from nerf2d import NeRF2D_LightningModule, get_rays2d, volume_rendering_weights
 
 volume_res = 500
 res = 100
@@ -28,28 +26,35 @@ def visualize_volume(
 
     # sample volume at grid points
     coords_flat = rearrange(coords, 'h w c -> (h w) c')
-    outputs_flat = volume(coords_flat).detach().numpy()
+    viewdirs = torch.zeros(coords_flat.shape[0], 1)
+    outputs_flat = volume(coords_flat, viewdirs).detach().numpy()
 
     # visualize points
     rr.log(volume_name, rr.Points3D(ru.embed_Points2D(coords_flat), colors=outputs_flat))
 
-def visualize_rendering(res, f, c2w, volume, nerf):
+def visualize_rendering(res, f, c2w, volume, nerf: NeRF2D_LightningModule):
     # visualize camera
     rr.log('camera', rr.Pinhole(height=res, width=1, focal_length=f, camera_xyz=ru.CAM_2D))
     rr.log('camera', ru.embed_Transform2D(c2w))
 
+    image = nerf.render_view(res, f, c2w.as_matrix())
+    image = rearrange(image, 'c h w -> h w c')
+
+    rr.log('camera', rr.Image(image))
+
     # get camera rays
     o, d = get_rays2d(res, f, c2w.as_matrix())
 
-    # visualize rays
-    rr.log('rays', rr.Arrows3D(origins=ru.embed_Points2D(o), vectors=ru.embed_Points2D(d)))
+    # # visualize rays
 
-    # get query points
-    points, ts = nerf.compute_query_points(o, d)
+    # rr.log('rays', rr.Arrows3D(origins=ru.embed_Points2D(o), vectors=ru.embed_Points2D(d)))
+    #
+    # # get query points
+    angles, points, ts = nerf.compute_query_points(o, d)
 
     # query network
     points_flat = rearrange(points, 'n t d -> (n t) d')
-    outputs_flat = volume(points_flat)
+    outputs_flat = volume(points_flat, angles)
     outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=res)
     colors = outputs[:, :, 0:3]
     densities = outputs[:, :, 3]
@@ -73,33 +78,35 @@ def visualize_rendering(res, f, c2w, volume, nerf):
 
     # show image on camera
     image = rearrange(rendered_colors, 'h c -> h 1 c')
-    rr.log('camera', rr.Image(image))
 
 rr.init('render_volume', spawn=True)
 
-nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v15.ckpt', t_far=6).cpu()
+nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v16.ckpt', t_far=6).cpu()
 
-def uniform_spaced_circle(radius, num_points):
-    angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
-    x = radius * np.cos(angles)
-    y = radius * np.sin(angles)
+visualize_volume('volume', nerf.model, res=volume_res)
 
-    pos = np.stack([x, y], axis=1)
-    dirs = -pos / np.linalg.norm(pos)
-
-    return pos, angles + np.pi
-
-pos, angles = uniform_spaced_circle(4, 100)
-
-volume = DummyVolume(density=10)
-
-# visualize volume
-visualize_volume('volume', volume, res=100)
-
-for i in range(len(pos)):
-    translation = torch.tensor(pos[i])
-    rotation = angles[i]
-
-    c2w = Transform2D.from_translation_and_rotation(translation, rotation)
-
-    visualize_rendering(res, f, c2w, volume, nerf)
+# def uniform_spaced_circle(radius, num_points):
+#     angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
+#     x = radius * np.cos(angles)
+#     y = radius * np.sin(angles)
+#
+#     pos = np.stack([x, y], axis=1)
+#     dirs = -pos / np.linalg.norm(pos)
+#
+#     return pos, angles + np.pi
+#
+# pos, angles = uniform_spaced_circle(4, 100)
+#
+# # volume = DummyVolume(density=10)
+# volume = nerf.model
+#
+# # visualize volume
+# # visualize_volume('volume', volume, res=100)
+#
+# for i in range(len(pos)):
+#     translation = torch.tensor(pos[i])
+#     rotation = angles[i]
+#
+#     c2w = Transform2D.from_translation_and_rotation(translation, rotation)
+#
+#     visualize_rendering(res, f, c2w, volume, nerf)
