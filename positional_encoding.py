@@ -9,7 +9,7 @@ class PositionalEncoding(nn.Module):
         super().__init__()
         self.d_emb = d_emb
 
-        # compute frequency bands
+        # compute frequency banngds
         self.frequency_bands = 2.0 ** torch.linspace(
             0.0,
             d_emb - 1,

@@ -1,11 +1,12 @@
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
+import wandb
 from einops import repeat, rearrange, einsum
 from torch import Tensor
 
-import wandb
-from nerf_model import NeRF, SimpleNeRF
+from nerf_model import NeRF
 
 def pixel_centers(lo, hi, n_pixels):
     """
@@ -88,6 +89,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             self,
             lr=1e-4,
             n_freqs_pos=8,
+            n_freqs_dir=4,
             n_layers=4,
             d_hidden=128,
             t_near=2.,
@@ -102,15 +104,14 @@ class NeRF2D_LightningModule(pl.LightningModule):
         self.save_hyperparameters()
 
         # dummy model
-        self.model = SimpleNeRF(d_input=2, d_emb=n_freqs_pos, n_layers=n_layers, d_hidden=d_hidden)
         self.model = NeRF(
             d_pos_input=2,
             d_dir_input=1,
             n_freqs_position=n_freqs_pos,
-            n_freqs_direction=4,
+            n_freqs_direction=n_freqs_dir,
             n_layers=n_layers,
             d_hidden=d_hidden,
-            skip_indices=[]
+            skip_indices=[n_layers // 2]
         )
 
         # metrics
@@ -235,9 +236,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # stack validation renders into a single image
         all_renders = torch.stack(self.rendered_views, dim=1).detach().cpu()
+        all_renders = rearrange(all_renders, 'h w c -> c h w')
+        all_renders = TF.resize(all_renders, (256, 256), interpolation=TF.InterpolationMode.NEAREST)
+        all_renders = TF.to_pil_image(all_renders)
 
         self.trainer.logger.experiment.log({
-            'renders': wandb.Image(all_renders.numpy())
+            'renders': wandb.Image(all_renders)
         })
 
     def on_validation_epoch_start(self) -> None:
@@ -255,6 +259,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         gt_all = torch.stack(gt_views, dim=1).detach().cpu()
 
+        gt_all = rearrange(gt_all, 'h w c -> c h w')
+        gt_all = TF.resize(gt_all, (256, 256), interpolation=TF.InterpolationMode.NEAREST)
+        gt_all = TF.to_pil_image(gt_all)
+
         self.trainer.logger.experiment.log({
-            'renders_gt': wandb.Image(gt_all.numpy())
+            'renders_gt': wandb.Image(gt_all)
         })

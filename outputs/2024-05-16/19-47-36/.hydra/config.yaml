@@ -1,0 +1,26 @@
+seed: 0
+dev_run: false
+wandb:
+  run_name: null
+  job_type: train
+  project: NeRF2D
+trainer:
+  max_epochs: 1000
+  min_epochs: 0
+  overfit_batches: false
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 1
+  patience: 30
+data:
+  path: data/cube
+  batch_size: 100
+model:
+  t_near: 1.5
+  t_far: 4
+  n_steps: 100
+  n_freqs_pos: 6
+  n_freqs_dir: 3
+  n_layers: 4
+  d_hidden: 128
+  chunk_size: 30000
+  lr: 0.0001
