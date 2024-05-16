@@ -46,7 +46,7 @@ class NeRFDataset2D(TensorDataset):
 
         # get a ray for each pixel
         # TODO hardcoded
-        rays = [get_rays2d(100, self.focal_length, c2w) for c2w in self.poses]
+        rays = [get_rays2d(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
         origins = torch.stack([ray[0] for ray in rays])
         dirs = torch.stack([ray[1] for ray in rays])
 
@@ -86,4 +86,4 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size)
 
     def val_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.hparams.batch_size)
+        return DataLoader(self.test_dataset, batch_size=self.test_height)
