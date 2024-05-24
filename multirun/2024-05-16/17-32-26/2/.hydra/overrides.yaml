@@ -1,0 +1,5 @@
+- model.n_freqs_pos=8
+- run_name=$\{model.n_freqs_pos\}-freqs
+- trainer.max_epochs=50
+- trainer.check_val_every_n_epoch=5
+- trainer.log_every_n_steps=10

@@ -161,6 +161,14 @@ cython_debug/
 
 lightning_logs/
 
-# Custom environment files 
+data/
+checkpoints/
+wandb/
+lightning_logs/
+
+t # Custom environment files
 cv-env/
+
+multirun/
+outputs/
 data/cube/

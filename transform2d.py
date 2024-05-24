@@ -7,7 +7,7 @@ class Transform2D:
     """
 
     def __int__(self):
-        self.mx = torch.eye(4)
+        self.mx = torch.eye(3)
 
     def rotation_matrix(self):
         return self.mx[:2, :2]
@@ -17,6 +17,12 @@ class Transform2D:
 
     def rotation(self):
         return np.arctan2(self.mx[1, 0], self.mx[0, 0])
+
+    @classmethod
+    def identity(cls):
+        t = Transform2D()
+        t.mx = torch.eye(3)
+        return t
 
     @classmethod
     def from_matrix(cls, matrix: torch.Tensor):
