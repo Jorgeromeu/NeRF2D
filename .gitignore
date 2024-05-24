@@ -163,3 +163,4 @@ lightning_logs/
 
 # Custom environment files 
 cv-env/
+data/cube/
