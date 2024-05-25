@@ -96,7 +96,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
             t_far=6.,
             n_steps=64,
             chunk_size=30000,
-            n_gt_poses=100
+            n_gt_poses=100, 
+            depth_loss_weight=0.5,
     ):
 
         super().__init__()
@@ -116,6 +117,26 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # metrics
         self.criterion = torch.nn.MSELoss()
+        self.depth_loss_weight = depth_loss_weight
+
+    def compute_expected_depth(self, ts, weights):
+        """
+        Compute the expected depth for a batch of rays
+        :param ts: T
+        :param weights: N, T
+        :return: expected depth: N
+        """
+        expected_depth = einsum(weights, ts, 'n t, t -> n')
+        return expected_depth
+    
+    def depth_supervision_loss(self, expected_depth, gt_depth):
+        """
+        Compute the depth supervision loss
+        :param expected_depth: N
+        :param gt_depth: N
+        :return: depth supervision loss
+        """
+        return F.kl_div(F.log_softmax(expected_depth, dim=-1), gt_depth)
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
         """
@@ -183,7 +204,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # render colors by weighting samples
         rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
 
-        return rendered_colors
+        # return the rendered color for each ray
+        return rendered_colors, weights, ts
 
     def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
         """
@@ -199,31 +221,39 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins = origins.to(self.device)
         directions = directions.to(self.device)
 
-        colors = self.forward(origins, directions)
+        colors, _, _ = self.forward(origins, directions)
 
         # reshape as image
         colors_im = rearrange(colors, 'h c -> c h 1')
         return colors_im
 
     def training_step(self, batch, batch_idx):
-        origins, directions, colors = batch
+        origins, directions, colors, gt_depth = batch
         # forward pass
-        colors_pred = self(origins, directions)
+        colors_pred, weights, ts = self(origins, directions)
+        expected_depth = self.compute_expected_depth(ts, weights)
 
         # compute loss
-        loss = self.criterion(colors_pred, colors)
+        color_loss = self.criterion(colors_pred, colors)
+
+        # The data loader should also return the ground truth depth
+        depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
+        loss = (1-self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        origins, directions, colors = batch
+        origins, directions, colors, gt_depth = batch
         # forward pass
-        colors_pred = self(origins, directions)
+        colors_pred, weights, ts = self(origins, directions)
+        expected_depth = self.compute_expected_depth(ts, weights)
 
         self.rendered_views.append(colors_pred)
 
         # compute loss
-        loss = self.criterion(colors_pred, colors)
+        color_loss = self.criterion(colors_pred, colors)
+        depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
+        loss = (1-self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('val_loss', loss)
         return loss
 
@@ -254,7 +284,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         gt_views = []
         for batch in val_dataloader:
-            _, _, colors = batch
+            _, _, colors, _ = batch
             gt_views.append(colors)
 
         gt_all = torch.stack(gt_views, dim=1).detach().cpu()

@@ -25,8 +25,12 @@ def main(cfg: DictConfig):
     # load dataset
     dm = NeRF2D_Datamodule(folder=Path('./data/cube/'), batch_size=cfg.data.batch_size)
 
+    print("Dataset loaded")
+
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
+
+    print("Model loaded")
 
     # setup training loop
     wandb_logger = pl_loggers.WandbLogger(
@@ -36,6 +40,8 @@ def main(cfg: DictConfig):
         name=cfg.get('run_name'),
         log_model=True,
     )
+
+    print("Wandb logger loaded")
 
     checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', dirpath='checkpoints')
     early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
@@ -54,6 +60,8 @@ def main(cfg: DictConfig):
     trainer.fit(model, dm)
 
     wandb.finish()
+
+    print("Training finished")
 
 if __name__ == '__main__':
     main()

@@ -28,3 +28,4 @@ model:
   d_hidden: 128
   chunk_size: 30000
   lr: 1e-4
+  depth_loss_weight: 0.5

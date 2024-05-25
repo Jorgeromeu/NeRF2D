@@ -23,24 +23,29 @@ def read_image_folder(path: Path):
 
     focal = transforms_json['focal']
 
-    return ims, poses, focal
+    # TODO: read depth data (instead of random values)
+    depths = torch.rand(len(poses), 1, ims.shape[2], ims.shape[3])
+    depths = depths / 255  # normalize to floats
+
+    return ims, poses, focal, depths
 
 class NeRFDataset2D(TensorDataset):
     """
     Each item is a ray, and its corresponding pixel color
     """
 
-    def __init__(self, images: torch.Tensor, poses: torch.Tensor, focal_length: float):
+    def __init__(self, images: torch.Tensor, poses: torch.Tensor, focal_length: float, depths: torch.Tensor):
         """
         :param images: Images in dataset N, C, H, W
         :param poses: poses in dataset N, 3, 3
         :param focal_length: focal_length of cameras
         """
 
-        # save poses, focal length and images
+        # save poses, focal length, images and depth data
         self.poses = poses
         self.focal_length = focal_length
         self.ims = images
+        self.depths = depths
 
         self.image_resolution = images.shape[2]
 
@@ -58,8 +63,12 @@ class NeRFDataset2D(TensorDataset):
         origins_flat = rearrange(origins, 'n h d -> (n h) d')
         dirs_flat = rearrange(dirs, 'n h d -> (n h) d')
 
+        # flatten depth data
+        # depths_flat = rearrange(self.depths, 'n h 1 -> (n h)')
+        depths_flat = rearrange(self.depths, 'n c h w -> (n h) c w')
+
         # each entry is a tuple of (origin, direction, pixel_color)
-        super().__init__(origins_flat, dirs_flat, colors_flat)
+        super().__init__(origins_flat, dirs_flat, colors_flat, depths_flat)
 
 class NeRF2D_Datamodule(pl.LightningDataModule):
 
@@ -69,14 +78,14 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         self.save_hyperparameters(ignore=['folder'])
 
         # read training images and poses
-        self.train_ims, self.train_poses, self.train_focal = read_image_folder(folder / 'train')
+        self.train_ims, self.train_poses, self.train_focal, self.train_depths = read_image_folder(folder / 'train')
         self.train_height = self.train_ims.shape[2]
-        self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal)
+        self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal, self.train_depths)
 
         # read test images and poses
-        self.test_ims, self.test_poses, self.test_focal = read_image_folder(folder / 'test')
+        self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(folder / 'test')
         self.test_height = self.test_ims.shape[2]
-        self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal)
+        self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal, self.test_depths)
 
         # save additional hyperparams
         self.hparams.n_train_images = len(self.train_dataset)
