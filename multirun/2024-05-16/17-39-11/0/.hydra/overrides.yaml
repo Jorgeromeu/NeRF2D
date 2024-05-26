@@ -1,5 +1,0 @@
-- model.n_freqs_pos=1
-- run_name=$\{model.n_freqs_pos\}-freqs
-- trainer.max_epochs=30
-- trainer.check_val_every_n_epoch=5
-- trainer.log_every_n_steps=10
