@@ -2,10 +2,10 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
-import wandb
 from einops import repeat, rearrange, einsum
 from torch import Tensor
 
+import wandb
 from nerf_model import NeRF
 
 def pixel_centers(lo, hi, n_pixels):
