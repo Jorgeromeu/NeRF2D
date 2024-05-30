@@ -7,7 +7,7 @@ from einops import rearrange
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 
-from nerf2d import get_rays2d
+from PixelNerf import get_rays2d, ProjectCoordinate
 
 def read_image_folder(path: Path):
     with open(path / 'transforms.json') as f:
