@@ -18,10 +18,10 @@ if __name__ == '__main__':
     # c2w = coordinateProjector.c2ws[index]
     # c2w_transform = Transform2D.from_matrix(c2w)
 
-    f =5
-    h =3
-    t = np.array([0, 0])
-    r = 0
+    f = 20
+    h = 20
+    t = np.array([0,0])
+    r = 2
 
     my_c2w = Transform2D.from_translation_and_rotation(t, r).as_matrix()
     # print(my_c2w)
@@ -29,7 +29,9 @@ if __name__ == '__main__':
     o, d = get_rays2d(h, f, my_c2w)
     centers = pixel_centers(-h/2, h/2, 3)
 
-    p = o[0] + 20 * d[0]
+    idx = 2
+
+    p = o[idx] + 1 * d[idx]
 
     coordinateProjector = ProjectCoordinate(image_resolution=h, poses=[my_c2w],
                                                 focal_length=f)
@@ -37,11 +39,11 @@ if __name__ == '__main__':
     p = torch.tensor([[p[0], p[1]]])
     ans = coordinateProjector.project_coordinates_1d(p, 0)
 
-    true_ans = o[0] + (f / d[0, 0]) * d[0]
+    true_ans = o[idx] + (f / d[idx, 0]) * d[idx]
 
 
-    print(true_ans)
-    print(ans)
+    print('ans', true_ans)
+    # print(ans)
 
 
     #

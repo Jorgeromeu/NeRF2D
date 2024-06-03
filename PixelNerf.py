@@ -104,9 +104,15 @@ class ProjectCoordinate:
         # Convert c2w to w2c (world to camera) by inverting the matrix
         w2c = torch.inverse(c2w)
 
+        # print('w2c', w2c)
+
         # Transform the 2D coordinates from world to camera space
-        print('xyh', xy_h)
+        # print('xyh', xy_h)
         xy_camera = (w2c @ xy_h.T).T  # (Nx3)
+        # print('xycam', xy_camera)
+
+        return xy_camera[:, 1] * self.focal_length / xy_camera[0, 0]
+
 
 
         # Apply the intrinsic camera matrix for 1D projection
@@ -115,31 +121,33 @@ class ProjectCoordinate:
         #     [0, 1, 0],
         #     [0, 0, 1]
         # ], device=xy_coords.device)
-        print(xy_camera)
+        # print(xy_camera)
 
-        print('please', xy_camera[0, 1] * self.focal_length / xy_camera[0, 0])
 
-        K = torch.tensor([
-            [float(self.focal_length), 0, 0],
-            [float(self.image_resolution), 0, 0],
-            [0, 0, 1]
-        ], device=xy_coords.device)
-
+        # print(ans)
+        # print('please', xy_camera[0, 1] * self.focal_length / xy_camera[0, 0])
+        #
         # K = torch.tensor([
-        #     [self.focal_length, 0, 0],
-        #     [float(self.image_resolution), 1, 0],
+        #     [float(self.focal_length), 0, 0],
+        #     [float(self.image_resolution), 0, 0],
         #     [0, 0, 1]
         # ], device=xy_coords.device)
-
-        # Project the normalized device coordinates to 1D coordinates
-        uvw = (K @ xy_camera.T).T  # (Nx3)
-
-        print(uvw)
-
-        # Normalize to get the u pixel coordinates
-        # u = uvw[:, 1] / uvw[:, 0] * self.focal_length  # (N)
-        u = uvw[:, 0] / uvw[:, 2]  # (N)
-        return u
+        #
+        # # K = torch.tensor([
+        # #     [self.focal_length, 0, 0],
+        # #     [float(self.image_resolution), 1, 0],
+        # #     [0, 0, 1]
+        # # ], device=xy_coords.device)
+        #
+        # # Project the normalized device coordinates to 1D coordinates
+        # uvw = (K @ xy_camera.T).T  # (Nx3)
+        #
+        # # print(uvw)
+        #
+        # # Normalize to get the u pixel coordinates
+        # # u = uvw[:, 1] / uvw[:, 0] * self.focal_length  # (N)
+        # u = uvw[:, 0] / uvw[:, 2]  # (N)
+        # return u
 
 def sample_stratified(near, far, n_samples):
     bin_borders = torch.linspace(near, far, n_samples + 1)
