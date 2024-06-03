@@ -119,24 +119,6 @@ class NeRF2D_LightningModule(pl.LightningModule):
         self.color_loss = torch.nn.MSELoss()
         self.depth_loss_weight = depth_loss_weight
 
-    def compute_expected_depth(self, ts, weights):
-        """
-        Compute the expected depth for a batch of rays
-        :param ts: T
-        :param weights: N, T
-        :return: expected depth: N
-        """
-        expected_depth = einsum(weights, ts, 'n t, t -> n')
-        return expected_depth
-
-    def depth_supervision_loss(self, expected_depth, gt_depth):
-        """
-        Compute the depth supervision loss
-        :param expected_depth: N
-        :param gt_depth: N
-        :return: depth supervision loss
-        """
-        return F.kl_div(F.log_softmax(expected_depth, dim=-1), gt_depth)
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
         """
@@ -226,18 +208,47 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # reshape as image
         colors_im = rearrange(colors, 'h c -> c h 1')
         return colors_im
+    
+    def depth_loss(self, gt_depth, ts, weights, sigma=1.0):
+        """
+        Compute the depth loss for a single pixel.
+
+        Args:
+            ts (torch.Tensor): Depth values along the pixel ray (shape: [100]).
+            weights (torch.Tensor): Weights along the pixel ray (shape: [1, 100]).
+            depth (torch.Tensor): Ground truth depth of the pixel ray (shape: [1, 1]).
+            sigma (float): Standard deviation for the Gaussian weighting, default is 1.0.
+
+        Returns:
+            torch.Tensor: The computed depth loss (shape: [1]).
+        """
+        device = gt_depth.device
+
+        # Compute the intervals between sample points
+        dists = ts[1:] - ts[:-1]
+        dists = torch.cat([dists, torch.tensor([dists.max()]).to(device=device)])  # Last interval is a large number to avoid boundary issues
+
+        # Compute the Gaussian weighting term
+        gauss_weight = torch.exp(-0.5 * ((ts - gt_depth) ** 2) / (sigma ** 2))  # Shape: [100]
+
+        # Compute the log probability term
+        log_prob = torch.log(weights + 1e-5)  # Shape: [1, 100]
+
+        # Compute the loss by summing over all sampled points, incorporating the intervals
+        loss = -torch.sum(log_prob * gauss_weight * dists)  # Shape: []
+
+        return loss
 
     def training_step(self, batch, batch_idx):
         origins, directions, colors, gt_depth = batch
         # forward pass
         colors_pred, weights, ts = self(origins, directions)
-        expected_depth = self.compute_expected_depth(ts, weights)
 
         # compute loss
         color_loss = self.color_loss(colors_pred, colors)
 
         # The data loader should also return the ground truth depth
-        depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
+        depth_loss = self.depth_loss(gt_depth, ts, weights)
         loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('train_loss', loss)
         return loss
@@ -246,13 +257,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins, directions, colors, gt_depth = batch
         # forward pass
         colors_pred, weights, ts = self(origins, directions)
-        expected_depth = self.compute_expected_depth(ts, weights)
 
         self.rendered_views.append(colors_pred)
 
         # compute loss
         color_loss = self.color_loss(colors_pred, colors)
-        depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
+        depth_loss = self.depth_loss(gt_depth, ts, weights)
         loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('val_loss', loss)
         return loss

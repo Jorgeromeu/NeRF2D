@@ -95,7 +95,7 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size)
+        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.test_height)
+        return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)

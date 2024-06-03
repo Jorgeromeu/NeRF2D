@@ -172,3 +172,4 @@ cv-env/
 multirun/
 outputs/
 data/cube/
+data/cube_depth/
