@@ -41,9 +41,7 @@ def main(cfg: DictConfig):
         log_model=True,
     )
 
-    print("Wandb logger loaded")
-
-    checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', dirpath='checkpoints')
+    checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', dirpath='checkpoints', save_last=True)
     early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
 
     trainer = pl.Trainer(
@@ -54,6 +52,7 @@ def main(cfg: DictConfig):
         log_every_n_steps=cfg.trainer.log_every_n_steps,
         logger=wandb_logger,
         callbacks=[checkpoint_callback, early_stopping],
+        fast_dev_run=cfg.dev_run,
     )
 
     # train

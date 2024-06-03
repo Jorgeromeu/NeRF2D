@@ -4,7 +4,7 @@ from einops import rearrange, einsum
 
 import rerun_util as ru
 from dummy_volume import DummyVolume
-from nerf2d import NeRF2D_LightningModule, get_rays2d, volume_rendering_weights
+from nerf2d import NeRF2D_LightningModule, get_rays2d, volume_render
 
 volume_res = 500
 res = 100
@@ -60,7 +60,7 @@ def visualize_rendering(res, f, c2w, volume, nerf: NeRF2D_LightningModule):
     densities = outputs[:, :, 3]
 
     # compute volume rendering weights
-    weights = volume_rendering_weights(ts, densities)
+    weights = volume_render(ts, densities)
 
     # visualize query points: size is weight color is color
     weights_flat = rearrange(weights, 'n t -> (n t)')

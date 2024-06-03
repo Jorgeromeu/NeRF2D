@@ -8,50 +8,42 @@ from nerf2d_dataset import NeRFDataset2D, read_image_folder
 from transform2d import Transform2D
 
 folder = '/home/jorge/repos/NeRF2D/data/cube/train'
+# folder = '/home/jorge/cameras'
 image_width = 10
 ray_length = 1.6
 
 # Load the dataset
-rr.init('vis_dataset_2d', spawn=True)
+rr.init('vis_nerf_dataset_2d', spawn=True)
 
 # read dataset
-ims, poses, focal = read_image_folder(Path(folder))
-dataset = NeRFDataset2D(ims, poses, focal)
+ims, poses, focal, depths = read_image_folder(Path(folder))
+dataset = NeRFDataset2D(ims, poses, focal, depths)
 
-# log all rays in dataset
-rays = [dataset[i] for i in range(len(dataset))]
-origins = torch.stack([ray[0] for ray in rays])
-directions = torch.stack([ray[1] for ray in rays])
-colors = torch.stack([ray[2] for ray in rays])
+# get rays, colors and depths
+origins = torch.stack([ray[0] for ray in dataset])
+dirs = torch.stack([ray[1] for ray in dataset])
+colors = torch.stack([ray[2] for ray in dataset])
+depths = torch.Tensor([ray[3].item() for ray in dataset]).unsqueeze(-1)
 
-rr.log(f'rays', rr.Arrows3D(
-    origins=ru.embed_Points2D(origins),
-    vectors=ru.embed_Points2D(directions * ray_length),
-    colors=colors
-))
+rr.log(
+    'rays',
+    rr.Arrows3D(
+        origins=ru.embed_Points2D(origins),
+        vectors=ru.embed_Points2D(dirs) * depths,
+        colors=colors
+    )
+)
 
-for i in range(len(dataset.ims)):
-    # read transform
-    c2w = torch.Tensor(dataset.poses[i])
+for i in range(len(ims)):
+    c2w = poses[i]
 
-    # read image
-    im = dataset.ims[i]
-
-    # log camera
     rr.log(
-        f'cam{i}',
-        rr.Pinhole(
-            height=dataset.image_resolution,
-            width=image_width,
-            focal_length=focal,
-            camera_xyz=rr.ViewCoordinates.FUR
-        )
+        f'world/cam{i}',
+        rr.Pinhole(height=dataset.image_resolution,
+                   width=1,
+                   focal_length=focal,
+                   camera_xyz=ru.CAM_2D)
     )
 
-    # Transform camera
     c2w_transform = Transform2D.from_matrix(c2w)
-    rr.log(f'cam{i}', ru.embed_Transform2D(c2w_transform))
-
-    # Log image
-    # im_repeated = repeat(im, 'c h -> h w c', w=image_width)
-    # rr.log(f'world/cam{i}', rr.Image(im_repeated))
+    rr.log(f'world/cam{i}', ru.embed_Transform2D(c2w_transform))

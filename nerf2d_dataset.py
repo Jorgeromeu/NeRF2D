@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from einops import rearrange
+from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 
@@ -23,9 +25,9 @@ def read_image_folder(path: Path):
 
     focal = transforms_json['focal']
 
-    # TODO: read depth data (instead of random values)
-    depths = torch.rand(len(poses), 1, ims.shape[2], ims.shape[3])
-    depths = depths / 255  # normalize to floats
+    depths = np.stack([np.load(path / f'cam-{i}.npz')['depth_map'] for i in range(len(poses))])
+    depths = rearrange(depths, 'n h d -> n d h 1')
+    depths = Tensor(depths)
 
     return ims, poses, focal, depths
 
@@ -57,6 +59,7 @@ class NeRFDataset2D(TensorDataset):
 
         # remove width dimension
         ims_no_w = rearrange(self.ims, 'n c h 1 -> n c h')
+        depths_no_w = rearrange(self.depths, 'n d h 1 -> n d h')
 
         # flatten all images and rays
         colors_flat = rearrange(ims_no_w, 'n c h -> (n h) c')
@@ -65,7 +68,7 @@ class NeRFDataset2D(TensorDataset):
 
         # flatten depth data
         # depths_flat = rearrange(self.depths, 'n h 1 -> (n h)')
-        depths_flat = rearrange(self.depths, 'n c h w -> (n h) c w')
+        depths_flat = rearrange(depths_no_w, 'n c h -> (n h) c')
 
         # each entry is a tuple of (origin, direction, pixel_color)
         super().__init__(origins_flat, dirs_flat, colors_flat, depths_flat)
