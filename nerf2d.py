@@ -2,10 +2,10 @@ import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
-import wandb
 from einops import repeat, rearrange, einsum
 from torch import Tensor
 
+import wandb
 from nerf_model import NeRF
 
 def pixel_centers(lo, hi, n_pixels):
@@ -96,7 +96,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             t_far=6.,
             n_steps=64,
             chunk_size=30000,
-            n_gt_poses=100, 
+            n_gt_poses=100,
             depth_loss_weight=0.5,
     ):
 
@@ -116,7 +116,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         )
 
         # metrics
-        self.criterion = torch.nn.MSELoss()
+        self.color_loss = torch.nn.MSELoss()
         self.depth_loss_weight = depth_loss_weight
 
     def compute_expected_depth(self, ts, weights):
@@ -128,7 +128,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         """
         expected_depth = einsum(weights, ts, 'n t, t -> n')
         return expected_depth
-    
+
     def depth_supervision_loss(self, expected_depth, gt_depth):
         """
         Compute the depth supervision loss
@@ -178,7 +178,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             self,
             origins: Tensor,
             directions: Tensor,
-    ) -> Tensor:
+    ) -> (Tensor, Tensor, Tensor):
         """
         Perform volume rendering on model given a set of rays
         :param origins: origins of rays N, 3
@@ -234,11 +234,11 @@ class NeRF2D_LightningModule(pl.LightningModule):
         expected_depth = self.compute_expected_depth(ts, weights)
 
         # compute loss
-        color_loss = self.criterion(colors_pred, colors)
+        color_loss = self.color_loss(colors_pred, colors)
 
         # The data loader should also return the ground truth depth
         depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
-        loss = (1-self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+        loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('train_loss', loss)
         return loss
 
@@ -251,9 +251,9 @@ class NeRF2D_LightningModule(pl.LightningModule):
         self.rendered_views.append(colors_pred)
 
         # compute loss
-        color_loss = self.criterion(colors_pred, colors)
+        color_loss = self.color_loss(colors_pred, colors)
         depth_loss = self.depth_supervision_loss(expected_depth, gt_depth)
-        loss = (1-self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+        loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
         self.log('val_loss', loss)
         return loss
 
