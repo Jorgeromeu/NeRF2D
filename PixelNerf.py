@@ -89,37 +89,56 @@ class ProjectCoordinate:
         Parameters:
         image_resolution (int): The length of the 1D image.
         focal_length (int): The focal length of the camera.
-        c2w (torch.Tensor): The camera-to-world transformation matrix (4x4).
+        c2w (torch.Tensor): The camera-to-world transformation matrix (3x3).
         xy_coords (torch.Tensor): The 2D coordinates (Nx2).
-
+ b
         Returns:
         torch.Tensor: The projected 1D coordinates (N).
         """
         c2w = self.c2ws[camera_index]
+        print('zyc', xy_coords)
         # Ensure xy_coords are in homogeneous coordinates (Nx3), assuming z=0
         # zeros = torch.zeros((xy_coords.shape[0], 1), device=xy_coords.device)
-        xy_h = torch.cat([xy_coords, torch.ones((xy_coords.shape[0], 1), device=xy_coords.device)], dim=-1)  # (Nx4)
+        xy_h = torch.cat([xy_coords, torch.ones((xy_coords.shape[0], 1), device=xy_coords.device)], dim=-1)  # (Nx3)
 
         # Convert c2w to w2c (world to camera) by inverting the matrix
         w2c = torch.inverse(c2w)
 
         # Transform the 2D coordinates from world to camera space
+        print('xyh', xy_h)
         xy_camera = (w2c @ xy_h.T).T  # (Nx3)
 
 
         # Apply the intrinsic camera matrix for 1D projection
+        # K = torch.tensor([
+        #     [self.focal_length, self.image_resolution / 2, 0],
+        #     [0, 1, 0],
+        #     [0, 0, 1]
+        # ], device=xy_coords.device)
+        print(xy_camera)
+
+        print('please', xy_camera[0, 1] * self.focal_length / xy_camera[0, 0])
+
         K = torch.tensor([
-            [self.focal_length, self.image_resolution / 2, 0],
-            [0, 1, 0],
+            [float(self.focal_length), 0, 0],
+            [float(self.image_resolution), 0, 0],
             [0, 0, 1]
         ], device=xy_coords.device)
+
+        # K = torch.tensor([
+        #     [self.focal_length, 0, 0],
+        #     [float(self.image_resolution), 1, 0],
+        #     [0, 0, 1]
+        # ], device=xy_coords.device)
 
         # Project the normalized device coordinates to 1D coordinates
         uvw = (K @ xy_camera.T).T  # (Nx3)
 
-        # Normalize to get the u pixel coordinates
-        u = uvw[:, 0] / uvw[:, 2]  # (N)
+        print(uvw)
 
+        # Normalize to get the u pixel coordinates
+        # u = uvw[:, 1] / uvw[:, 0] * self.focal_length  # (N)
+        u = uvw[:, 0] / uvw[:, 2]  # (N)
         return u
 
 def sample_stratified(near, far, n_samples):
@@ -185,12 +204,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
         folder = Path('./data/cube/')
         train_ims, train_poses, train_focal = read_image_folder(folder / 'train')
         self.coordinateProjector = ProjectCoordinate(image_resolution=train_ims.shape[2], poses=train_poses, focal_length=train_focal)
-        self.image_models = []
+        self.feature_maps = []
         for train_im in train_ims:
             image_model = ImageEncoder()
             train_im_d = train_im.squeeze(-1)
             image_model.forward(train_im_d)
-            self.image_models.append(image_model)
+            self.feature_maps.append(image_model)
 
         self.model = NeRF(
             d_pos_input=2,
@@ -200,7 +219,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             n_layers=n_layers,
             d_hidden=d_hidden,
             skip_indices=[n_layers // 2],
-            if_hidden = len(self.image_models) * 20
+            if_hidden =len(self.feature_maps) * 20
         )
 
 
@@ -233,15 +252,15 @@ class NeRF2D_LightningModule(pl.LightningModule):
         cp0 = (cp0 / max(cp0) * 499)
         int_cp0 = cp0.to(torch.int)
 
-        image_features = self.image_models[0].latent[:, int_cp0]
+        image_features = self.feature_maps[0].latent[:, int_cp0]
 
-        for i in range(1, len(self.image_models)):
+        for i in range(1, len(self.feature_maps)):
 
             cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i)
             cpi = (cpi / max(cpi) * 499)
             int_cpi = cpi.to(torch.int)
 
-            image_features = torch.cat((image_features, self.image_models[i].latent[:, int_cpi]), 0)
+            image_features = torch.cat((image_features, self.feature_maps[i].latent[:, int_cpi]), 0)
         return image_features
 
 
