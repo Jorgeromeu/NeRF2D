@@ -8,6 +8,7 @@ from pathlib import Path
 import json
 from torchvision.io import read_image
 from imageencoder import ImageEncoder
+import numpy as np
 
 
 import wandb
@@ -60,6 +61,9 @@ def read_image_folder(path: Path):
     # read poses
     poses = torch.stack([torch.Tensor(frame_data['transform_matrix']) for frame_data in transforms_json['frames']])
 
+    #TODO: remove
+    indices = np.arange(0, 50, 10)
+    poses = poses[indices]
     # read images
     ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
     # drop alpha channel and nromalize to floats
@@ -96,7 +100,7 @@ class ProjectCoordinate:
         torch.Tensor: The projected 1D coordinates (N).
         """
         c2w = self.c2ws[camera_index]
-        print('zyc', xy_coords)
+        # print('zyc', xy_coords)
         # Ensure xy_coords are in homogeneous coordinates (Nx3), assuming z=0
         # zeros = torch.zeros((xy_coords.shape[0], 1), device=xy_coords.device)
         xy_h = torch.cat([xy_coords, torch.ones((xy_coords.shape[0], 1), device=xy_coords.device)], dim=-1)  # (Nx3)
@@ -111,8 +115,10 @@ class ProjectCoordinate:
         xy_camera = (w2c @ xy_h.T).T  # (Nx3)
         # print('xycam', xy_camera)
 
-        return xy_camera[:, 1] * self.focal_length / xy_camera[0, 0]
+        # print('my_ans: ', xy_camera[:, 1] * self.focal_length / xy_camera[0, 0])
+        pixels = xy_camera[:, 1] * self.focal_length / xy_camera[0, 0]
 
+        return torch.ones(pixels.shape)
 
 
         # Apply the intrinsic camera matrix for 1D projection
@@ -213,11 +219,11 @@ class NeRF2D_LightningModule(pl.LightningModule):
         train_ims, train_poses, train_focal = read_image_folder(folder / 'train')
         self.coordinateProjector = ProjectCoordinate(image_resolution=train_ims.shape[2], poses=train_poses, focal_length=train_focal)
         self.feature_maps = []
+        image_model = ImageEncoder()
         for train_im in train_ims:
-            image_model = ImageEncoder()
             train_im_d = train_im.squeeze(-1)
-            image_model.forward(train_im_d)
-            self.feature_maps.append(image_model)
+            features = image_model.forward(train_im_d)
+            self.feature_maps.append(features)
 
         self.model = NeRF(
             d_pos_input=2,
@@ -257,19 +263,21 @@ class NeRF2D_LightningModule(pl.LightningModule):
     def sample_features(self, query_points):
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
         cp0 = self.coordinateProjector.project_coordinates_1d(points_flat, 0)
-        cp0 = (cp0 / max(cp0) * 499)
+
+        # cp0 = (cp0 / max(cp0) * 499)
         int_cp0 = cp0.to(torch.int)
 
-        image_features = self.feature_maps[0].latent[:, int_cp0]
+        image_features = self.feature_maps[0][:, int_cp0]
 
         for i in range(1, len(self.feature_maps)):
 
             cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i)
-            cpi = (cpi / max(cpi) * 499)
+            # cpi = (cpi / max(cpi) * 499)
             int_cpi = cpi.to(torch.int)
 
-            image_features = torch.cat((image_features, self.feature_maps[i].latent[:, int_cpi]), 0)
+            image_features = torch.cat((image_features, self.feature_maps[i][:, int_cpi]), 0)
         return image_features
+
 
 
     def query_network_chunked(self, query_points: Tensor):

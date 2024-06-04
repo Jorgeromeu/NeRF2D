@@ -18,10 +18,10 @@ if __name__ == '__main__':
     # c2w = coordinateProjector.c2ws[index]
     # c2w_transform = Transform2D.from_matrix(c2w)
 
-    f = 20
-    h = 20
+    f = 3
+    h = 10
     t = np.array([0,0])
-    r = 2
+    r = 0
 
     my_c2w = Transform2D.from_translation_and_rotation(t, r).as_matrix()
     # print(my_c2w)
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     o, d = get_rays2d(h, f, my_c2w)
     centers = pixel_centers(-h/2, h/2, 3)
 
-    idx = 2
+    idx = 8
 
     p = o[idx] + 1 * d[idx]
 
