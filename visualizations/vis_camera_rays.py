@@ -4,7 +4,8 @@ import torch
 from einops import repeat, rearrange
 
 import rerun_util as ru
-from nerf2d import get_rays2d, NeRF2D_LightningModule
+from camera_model_2d import pixel_center_rays
+from nerf2d import NeRF2D_LightningModule
 from transform2d import Transform2D
 
 rr.init('camera_rays', spawn=True)
@@ -25,7 +26,7 @@ transform_2d = Transform2D.from_translation_and_rotation(translation, rotation)
 c2w = transform_2d.as_matrix()
 
 # compute rays
-origins, directions = get_rays2d(height, focal, c2w)
+origins, directions = pixel_center_rays(height, focal, c2w)
 
 # create fake image and ray_colors
 colors = torch.linspace(0, 1, height).unsqueeze(1).repeat(1, 3)
