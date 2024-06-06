@@ -15,7 +15,7 @@ trainer:
   patience: 30
 
 data:
-  path: data/cube
+  path: data/cube_depth
   batch_size: 100
 
 model:

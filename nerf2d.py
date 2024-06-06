@@ -246,12 +246,16 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # compute loss
         color_loss = self.color_loss(colors_pred, colors)
-
-        # The data loader should also return the ground truth depth
         depth_loss = self.depth_loss(gt_depth, ts, weights)
-        loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
-        self.log('train_loss', loss)
-        return loss
+        depth_loss = depth_loss / 5000
+        total_loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+        
+        # log the losses
+        self.log('train_color_loss', color_loss)
+        self.log('train_depth_loss', depth_loss)
+        self.log('train_loss', total_loss)
+
+        return total_loss
 
     def validation_step(self, batch, batch_idx):
         origins, directions, colors, gt_depth = batch
@@ -263,8 +267,14 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # compute loss
         color_loss = self.color_loss(colors_pred, colors)
         depth_loss = self.depth_loss(gt_depth, ts, weights)
+        depth_loss = depth_loss / 5000
         loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+
+        # log the losses
+        self.log('val_color_loss', color_loss)
+        self.log('val_depth_loss', depth_loss)
         self.log('val_loss', loss)
+
         return loss
 
     def configure_optimizers(self):

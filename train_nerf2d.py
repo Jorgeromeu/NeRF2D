@@ -43,7 +43,7 @@ def main(cfg: DictConfig):
             project=cfg.wandb.project,
             mode='run',
             job_type=cfg.get('job_type'),
-            name=cfg.get('run_name'),
+            name='nerf2d - depth loss weight: ' + str(cfg.model.depth_loss_weight),
             log_model=True,
         )
 
