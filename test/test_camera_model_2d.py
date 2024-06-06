@@ -4,7 +4,7 @@ import rerun as rr
 import torch
 
 import visualizations.rerun_util as ru
-from camera_model_2d import camera_rays, project, projection_matrix, unembed_homog, embed_homog, project_gt
+from camera_model_2d import camera_rays, project, projection_matrix, unembed_homog, embed_homog, _project_gt
 from transform2d import Transform2D
 
 class TestCameraModel(TestCase):
@@ -21,8 +21,8 @@ class TestCameraModel(TestCase):
         projected = unembed_homog(embed_homog(p) @ P.T)
 
         # project with function
-        projected_gt = project_gt(p, f)
-   
+        projected_gt = _project_gt(p, f)
+
         self.assertTrue(torch.allclose(projected, projected_gt, atol=1e-5))
 
     def test_ray_project_consistent(self):

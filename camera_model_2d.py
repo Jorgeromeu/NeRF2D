@@ -74,9 +74,13 @@ def pixel_center_rays(height: int, focal_length_px: float, c2w: torch.Tensor):
     # get camera rays for pixel centers
     return camera_rays(ys, focal_length_px, c2w)
 
-def project_gt(p: Tensor, focal_length: float):
+def _project_gt(p: Tensor, focal_length: float):
     """
-    Ground truth projection logic, should be equivalent to the matrix formulation
+    Ground truth projection function for testing purposes should be equal
+    to applying projection matrix in homogeneous coords
+    :param p: N, 2 tensor of points
+    :param focal_length: focal length
+    :return: N, 1 tensor of projected points
     """
     return (p[:, 1] * focal_length / p[:, 0]).unsqueeze(-1)
 
