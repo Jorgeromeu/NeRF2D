@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from einops import rearrange
 
 from positional_encoding import PositionalEncoding
 
@@ -65,7 +66,8 @@ class NeRF(nn.Module):
             skip_indices: list[int] = None,
             n_layers: int = 8,
             d_hidden: int = 256,
-            if_hidden: int = 1000
+            if_hidden: int = 50,
+            nr_images: int = 5
     ):
         super().__init__()
 
@@ -76,6 +78,7 @@ class NeRF(nn.Module):
 
         self.d_input = d_pos_input
 
+        self.nr_images = nr_images
         # positional encoding
         self.pos_pe = PositionalEncoding(n_freqs_position)
         self.dir_pe = PositionalEncoding(n_freqs_direction)
@@ -89,12 +92,11 @@ class NeRF(nn.Module):
         self.sigmoid = nn.Sigmoid()
 
         # Create model layers
-        self.layers = nn.ModuleList(
+        self.layers_list = [nn.ModuleList(
             [nn.Linear(d_x_enc + if_hidden + d_d_enc, d_hidden)] +
             [nn.Linear(d_hidden + d_x_enc, d_hidden) if i + 1 in self.skip_indices else
              nn.Linear(d_hidden, d_hidden)
-             for i in range(n_layers - 1)]
-        )
+             for i in range(n_layers - 1)]) for i in range(self.nr_images)]
 
         # maps to density
         self.density_head = nn.Linear(d_hidden, 1)
@@ -105,28 +107,32 @@ class NeRF(nn.Module):
 
     def forward(
             self,
-            x: torch.Tensor,
+            x,
             d: torch.Tensor,
-            image_features: torch.Tensor
+            image_features
     ) -> torch.Tensor:
         # apply positional encoding
-        pos_enc = self.pos_pe(x)
         dir_enc = self.dir_pe(d)
 
         # apply model layers
-        z = torch.cat([pos_enc, image_features, dir_enc], dim = 1)
-        for i, layer in enumerate(self.layers):
+        for i in range(self.nr_images):
+            pos_enc = self.pos_pe(x[i])
+            cur_image_features = rearrange(image_features[i], 'a b -> b a')
 
-            if i not in self.skip_indices:
+            z = torch.cat([pos_enc, cur_image_features, dir_enc], dim = 1)
+            for layers in (self.layers_list):
+                for i, layer in enumerate(layers):
 
-                z = self.relu(layer(z))
+                    if i not in self.skip_indices:
 
-            else:
-                z = torch.cat([z, pos_enc], dim=1)
-                z = self.relu(layer(z))
+                        z = self.relu(layer(z))
 
-        # immediately get density
-        density = self.relu(self.density_head(z))
+                    else:
+                        z = torch.cat([z, pos_enc], dim=1)
+                        z = self.relu(layer(z))
+
+            # immediately get density
+            density = self.relu(self.density_head(z))
 
         # concatenate feature map with view direction
         z = torch.cat([z], dim=1)

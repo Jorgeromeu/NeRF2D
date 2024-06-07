@@ -10,7 +10,7 @@ from imageencoder import ImageEncoder
 import numpy as np
 
 
-from camera_model_2d import pixel_center_rays, project
+from camera_model_2d import pixel_center_rays, project, transform_p
 
 import wandb
 from Pixelnerf_model import NeRF
@@ -71,11 +71,13 @@ class ProjectCoordinate:
 
         # w2c = torch.inverse(c2w)
 
-        points = project(xy_coords, self.focal_length, c2w.inverse())
+        projected_points = project(xy_coords, self.focal_length, c2w.inverse())
 
-        pixels = get_exact_pixels(points)
+        points = transform_p(xy_coords, c2w.inverse())
 
-        return pixels
+        pixels = get_exact_pixels(projected_points).int()
+
+        return pixels, points
 
 
         # Apply the intrinsic camera matrix for 1D projection
@@ -190,7 +192,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
             n_layers=n_layers,
             d_hidden=d_hidden,
             skip_indices=[n_layers // 2],
-            if_hidden =len(self.feature_maps) * 20
+            if_hidden = 50,
+            nr_images = 5
         )
 
 
@@ -211,30 +214,31 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # compute query points for each ray
         query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
-        image_features = self.sample_features(query_points)
+        image_features, proj_points_list = self.sample_features(query_points)
         query_dirs = repeat(directions, 'b d -> b t d', t=len(ts))
 
         angles = torch.atan2(query_dirs[:, :, 1], query_dirs[:, :, 0]).unsqueeze(-1)
-        return angles, query_points, ts, image_features
+        return angles, proj_points_list, ts, image_features
 
 
     def sample_features(self, query_points):
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
-        cp0 = self.coordinateProjector.project_coordinates_1d(points_flat, 0).squeeze()
 
-        # cp0 = (cp0 / max(cp0) * 499)
-        int_cp0 = cp0.to(torch.int)
+        image_features = []
 
-        image_features = self.feature_maps[0][:, int_cp0]
+        proj_points_list = []
 
-        for i in range(1, len(self.feature_maps)):
+        for i in range(len(self.feature_maps)):
 
-            cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i).squeeze()
-            # cpi = (cpi / max(cpi) * 499)
-            int_cpi = cpi.to(torch.int)
+            pixels, proj_points = self.coordinateProjector.project_coordinates_1d(points_flat, i)
 
-            image_features = torch.cat((image_features, self.feature_maps[i][:, int_cpi]), 0)
-        return image_features
+
+            pixels = pixels.squeeze()
+            proj_points_list.append(proj_points)
+
+
+            image_features.append(self.feature_maps[i][:, pixels])
+        return image_features, proj_points_list
 
 
 
@@ -266,14 +270,14 @@ class NeRF2D_LightningModule(pl.LightningModule):
         """
 
         # query points
-        query_angles, query_points, ts, image_features = self.compute_query_points(origins, directions)
+        query_angles, proj_points_list, ts, image_features = self.compute_query_points(origins, directions)
 
         # TODO query network in chunks
-        points_flat = rearrange(query_points, 'n t d -> (n t) d')
+        # points_flat = rearrange(query_points, 'n t d -> (n t) d')
         angles_flat = rearrange(query_angles, 'n t d -> (n t) d')
         # outputs_flat = self.query_network_chunked(points_flat)
-        image_features = rearrange(image_features, 'a b -> b a')
-        outputs_flat = self.model(points_flat, angles_flat, image_features)
+        # image_features = rearrange(image_features, 'a b -> b a')
+        outputs_flat = self.model(proj_points_list, angles_flat, image_features)
         outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
         colors = outputs[:, :, 0:3]
         densities = outputs[:, :, 3]
