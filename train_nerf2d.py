@@ -37,7 +37,7 @@ def main(cfg: DictConfig):
         log_model=True,
     )
 
-    checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', dirpath='checkpoints')
+    checkpoint_callback = ModelCheckpoint(monitor='val_psnr', mode='max', dirpath='checkpoints')
     early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
 
     trainer = pl.Trainer(
