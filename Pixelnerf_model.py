@@ -90,7 +90,7 @@ class NeRF(nn.Module):
 
         # Create model layers
         self.layers = nn.ModuleList(
-            [nn.Linear(d_x_enc, d_hidden)] +
+            [nn.Linear(d_x_enc + if_hidden + d_d_enc, d_hidden)] +
             [nn.Linear(d_hidden + d_x_enc, d_hidden) if i + 1 in self.skip_indices else
              nn.Linear(d_hidden, d_hidden)
              for i in range(n_layers - 1)]
@@ -100,7 +100,7 @@ class NeRF(nn.Module):
         self.density_head = nn.Linear(d_hidden, 1)
 
         # maps to color, with viewdir
-        self.color_layer = nn.Linear(d_hidden + d_d_enc + if_hidden, d_hidden // 2)
+        self.color_layer = nn.Linear(d_hidden, d_hidden // 2)
         self.color_head = nn.Linear(d_hidden // 2, 3)
 
     def forward(
@@ -114,7 +114,7 @@ class NeRF(nn.Module):
         dir_enc = self.dir_pe(d)
 
         # apply model layers
-        z = pos_enc
+        z = torch.cat([pos_enc, image_features, dir_enc], dim = 1)
         for i, layer in enumerate(self.layers):
 
             if i not in self.skip_indices:
@@ -129,7 +129,7 @@ class NeRF(nn.Module):
         density = self.relu(self.density_head(z))
 
         # concatenate feature map with view direction
-        z = torch.cat([z, dir_enc, image_features], dim=1)
+        z = torch.cat([z], dim=1)
         z = self.relu(self.color_layer(z))
         color = self.sigmoid(self.color_head(z))
 

@@ -1,6 +1,5 @@
 import pytorch_lightning as pl
 import torch
-import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 from einops import repeat, rearrange, einsum
 from torch import Tensor
@@ -11,48 +10,10 @@ from imageencoder import ImageEncoder
 import numpy as np
 
 
+from camera_model_2d import pixel_center_rays, project
+
 import wandb
 from Pixelnerf_model import NeRF
-
-def pixel_centers(lo, hi, n_pixels):
-    """
-    Compute the center of each pixel in a range
-    :param lo: coordinate of lower-point of range
-    :param hi: coordinate of upper-point of range
-    :param n_pixels: numer of pixels
-    :return: coordinates of pixel centers
-    """
-    pixel_w = (hi - lo) / n_pixels
-    return torch.linspace(lo, hi - pixel_w, n_pixels) + pixel_w / 2
-
-def get_rays2d(height: int, focal_length_px: float, c2w: torch.Tensor):
-    """
-    Compute the set of rays for a 2D camera
-    :param height: amount of pixels
-    :param focal_length_px: focal length in pixel space
-    :param c2w: camera to world matrix
-    :return:
-    """
-
-    trans_c2w, rot_c2w = c2w[:2, 2], c2w[:2, :2]
-
-    # y-coords: center of each pixel in camera-space
-    # x-coords: focal-length
-    half_height = height / 2
-    ys = pixel_centers(-half_height, half_height, height)
-    xs = torch.ones_like(ys) * focal_length_px
-
-    # normalize directions
-    directions = F.normalize(torch.stack([xs, ys], dim=1), dim=1)
-    directions = directions.__reversed__().to(c2w)
-
-    # origin is c2w_translation for all rays
-    origins = repeat(trans_c2w, 'd -> n d', n=height)
-
-    # apply c2w rotation to directions
-    directions = directions @ rot_c2w.T
-
-    return origins, directions
 
 def read_image_folder(path: Path):
     with open(path / 'transforms.json') as f:
@@ -65,13 +26,20 @@ def read_image_folder(path: Path):
     indices = np.arange(0, 50, 10)
     poses = poses[indices]
     # read images
-    ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
+    ims = torch.stack([read_image(str(path / f'cam-{10 * i}.png')) for i in range(len(poses))])
     # drop alpha channel and nromalize to floats
     ims = ims[:, :3, :, :] / 255
 
     focal = transforms_json['focal']
 
     return ims, poses, focal
+
+
+def get_exact_pixels(points):
+    points = torch.round(points)
+    points = torch.clip(points, min = -250, max = 249)
+    points = points + 250
+    return points
 
 
 class ProjectCoordinate:
@@ -100,25 +68,14 @@ class ProjectCoordinate:
         torch.Tensor: The projected 1D coordinates (N).
         """
         c2w = self.c2ws[camera_index]
-        # print('zyc', xy_coords)
-        # Ensure xy_coords are in homogeneous coordinates (Nx3), assuming z=0
-        # zeros = torch.zeros((xy_coords.shape[0], 1), device=xy_coords.device)
-        xy_h = torch.cat([xy_coords, torch.ones((xy_coords.shape[0], 1), device=xy_coords.device)], dim=-1)  # (Nx3)
 
-        # Convert c2w to w2c (world to camera) by inverting the matrix
-        w2c = torch.inverse(c2w)
+        # w2c = torch.inverse(c2w)
 
-        # print('w2c', w2c)
+        points = project(xy_coords, self.focal_length, c2w.inverse())
 
-        # Transform the 2D coordinates from world to camera space
-        # print('xyh', xy_h)
-        xy_camera = (w2c @ xy_h.T).T  # (Nx3)
-        # print('xycam', xy_camera)
+        pixels = get_exact_pixels(points)
 
-        # print('my_ans: ', xy_camera[:, 1] * self.focal_length / xy_camera[0, 0])
-        pixels = xy_camera[:, 1] * self.focal_length / xy_camera[0, 0]
-
-        return torch.ones(pixels.shape)
+        return pixels
 
 
         # Apply the intrinsic camera matrix for 1D projection
@@ -260,9 +217,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
         angles = torch.atan2(query_dirs[:, :, 1], query_dirs[:, :, 0]).unsqueeze(-1)
         return angles, query_points, ts, image_features
 
+
     def sample_features(self, query_points):
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
-        cp0 = self.coordinateProjector.project_coordinates_1d(points_flat, 0)
+        cp0 = self.coordinateProjector.project_coordinates_1d(points_flat, 0).squeeze()
 
         # cp0 = (cp0 / max(cp0) * 499)
         int_cp0 = cp0.to(torch.int)
@@ -271,7 +229,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         for i in range(1, len(self.feature_maps)):
 
-            cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i)
+            cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i).squeeze()
             # cpi = (cpi / max(cpi) * 499)
             int_cpi = cpi.to(torch.int)
 
@@ -338,7 +296,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         """
 
         # render rays for view
-        origins, directions = get_rays2d(height, focal_length_px, c2w)
+        origins, directions = pixel_center_rays(height, focal_length_px, c2w)
         origins = origins.to(self.device)
         directions = directions.to(self.device)
 

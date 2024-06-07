@@ -6,8 +6,9 @@ import torch
 from einops import rearrange
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
+import numpy as np
 
-from PixelNerf import get_rays2d, ProjectCoordinate
+from camera_model_2d import pixel_center_rays
 
 def read_image_folder(path: Path):
     with open(path / 'transforms.json') as f:
@@ -16,8 +17,17 @@ def read_image_folder(path: Path):
     # read poses
     poses = torch.stack([torch.Tensor(frame_data['transform_matrix']) for frame_data in transforms_json['frames']])
 
+
+
     # read images
     ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
+
+    if path.name == 'train':
+        # TODO: remove
+        indices = np.arange(0, 50, 10)
+        poses = poses[indices]
+        # read images
+        ims = torch.stack([read_image(str(path / f'cam-{10 * i}.png')) for i in range(len(poses))])
     # drop alpha channel and nromalize to floats
     ims = ims[:, :3, :, :] / 255
 
@@ -46,7 +56,7 @@ class NeRFDataset2D(TensorDataset):
 
         # get a ray for each pixel
         # TODO hardcoded
-        rays = [get_rays2d(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
+        rays = [pixel_center_rays(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
         origins = torch.stack([ray[0] for ray in rays])
         dirs = torch.stack([ray[1] for ray in rays])
 
