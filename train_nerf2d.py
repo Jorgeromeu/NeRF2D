@@ -23,7 +23,12 @@ def main(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
 
     # load dataset
-    dm = NeRF2D_Datamodule(folder=Path(cfg.data.path), batch_size=cfg.data.batch_size)
+    dm = NeRF2D_Datamodule(
+        folder=Path(cfg.data.folder),
+        batch_size=cfg.data.batch_size,
+        camera_subset=cfg.data.camera_subset,
+        camera_subset_n=cfg.data.camera_subset_n,
+    )
 
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
@@ -32,8 +37,8 @@ def main(cfg: DictConfig):
     wandb_logger = pl_loggers.WandbLogger(
         project=cfg.wandb.project,
         mode='run',
-        job_type=cfg.get('job_type'),
-        name=cfg.get('run_name'),
+        job_type=cfg.wandb.get('job_type'),
+        name=cfg.wandb.get('run_name'),
         log_model=True,
     )
 

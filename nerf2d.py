@@ -34,7 +34,7 @@ def volume_rendering_weights(ts, densities):
     """
 
     delta = ts[1:] - ts[:-1]
-    delta = torch.cat([delta, delta[-1:]], dim=0)
+    delta = torch.cat([delta, Tensor([delta.max()]).to(ts)], dim=0)
 
     delta_density = einsum(densities, delta, 'n t, t -> n t')
     alpha = 1 - torch.exp(-delta_density)
@@ -59,6 +59,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             chunk_size=30000,
             n_gt_poses=100,
             depth_loss_weight=0.5,
+            depth_sigma=0.1,
             use_depth_supervision=True,
     ):
 
@@ -185,12 +186,11 @@ class NeRF2D_LightningModule(pl.LightningModule):
         :return torch.Tensor: The computed depth loss (shape: [1]).
         """
 
-        device = gt_depth.device
-
         # Compute the intervals between sample points
         dists = ts[1:] - ts[:-1]
-        dists = torch.cat([dists, torch.tensor([dists.max()]).to(
-            device=device)])  # Last interval is a large number to avoid boundary issues
+        dist_pad = Tensor([dists.max()]).to(gt_depth)
+
+        dists = torch.cat([dists, dist_pad])
 
         # Compute the Gaussian weighting term
         gauss_weight = torch.exp(-0.5 * ((ts - gt_depth) ** 2) / (sigma ** 2))  # Shape: [100]
@@ -211,19 +211,18 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         color_loss = self.color_loss(colors_pred, colors_gt)
 
-        if self.hparams.use_depth_supervision:
+        if not self.hparams.use_depth_supervision:
+            return {'loss': color_loss, 'color_loss': color_loss}
+        else:
 
-            depth_loss = self.depth_loss(gt_depth, ts, weights) / 5000
+            depth_loss = self.depth_loss(gt_depth, ts, weights, self.hparams.depth_sigma) / 2000
             total_loss = (1 - self.hparams.depth_loss_weight) * color_loss + self.hparams.depth_loss_weight * depth_loss
 
             return {
                 'loss': total_loss,
+                'color_loss': color_loss,
                 'depth_loss': depth_loss,
             }
-
-        else:
-
-            return {'loss': color_loss, 'color_loss': color_loss}
 
     def training_step(self, batch, batch_idx):
 

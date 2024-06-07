@@ -31,6 +31,9 @@ def read_image_folder(path: Path):
 
     return ims, poses, focal, depths
 
+def get_n_evenly_spaced_views(views, n):
+    return views[::(len(views) // (n + 1))][:-1]
+
 class NeRFDataset2D(TensorDataset):
     """
     Each item is a ray, and its corresponding pixel color
@@ -75,7 +78,12 @@ class NeRFDataset2D(TensorDataset):
 
 class NeRF2D_Datamodule(pl.LightningDataModule):
 
-    def __init__(self, folder: Path, batch_size=100):
+    def __init__(
+            self, folder: Path,
+            batch_size=100,
+            camera_subset=False,
+            camera_subset_n=5,
+    ):
         super().__init__()
 
         self.save_hyperparameters(ignore=['folder'])
@@ -83,7 +91,16 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         # read training images and poses
         self.train_ims, self.train_poses, self.train_focal, self.train_depths = read_image_folder(folder / 'train')
         self.train_height = self.train_ims.shape[2]
+
+        if camera_subset:
+            self.train_ims = get_n_evenly_spaced_views(self.train_ims, camera_subset_n)
+            self.train_poses = get_n_evenly_spaced_views(self.train_poses, camera_subset_n)
+            self.train_depths = get_n_evenly_spaced_views(self.train_depths, camera_subset_n)
+
         self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal, self.train_depths)
+
+        # sample n-random train_ims
+        idxs = np.random.choice(len(self.train_dataset), 10)
 
         # read test images and poses
         self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(folder / 'test')
@@ -95,7 +112,8 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15, persistent_workers=True)
+        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15,
+                          persistent_workers=True)
 
     def val_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
