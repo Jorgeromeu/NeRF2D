@@ -4,6 +4,7 @@ import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 from einops import repeat, rearrange, einsum
 from torch import Tensor
+from torchmetrics.image import PeakSignalNoiseRatio
 
 import wandb
 from nerf_model import NeRF
@@ -116,6 +117,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # metrics
         self.criterion = torch.nn.MSELoss()
+        self.val_psnr = PeakSignalNoiseRatio()
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
         """
@@ -225,6 +227,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # compute loss
         loss = self.criterion(colors_pred, colors)
         self.log('val_loss', loss)
+        self.log('val_psnr', self.val_psnr(colors_pred, colors))
         return loss
 
     def configure_optimizers(self):
