@@ -105,3 +105,22 @@ def project(points: Tensor, focal_length: float, w2c: Tensor):
     p_projected = unembed_homog(p_projected_homog)
 
     return p_projected
+
+
+def transform_p(points: Tensor, w2c: Tensor):
+    """
+    Implement camera projection
+    """
+
+    # construct matrix
+    matrix = w2c
+
+    # embed points to 2D homogeneous space
+    p_homog = embed_homog(points)
+    # apply matrix to points
+    p_projected_homog = p_homog @ matrix.T
+    # unembed to 1D coordinates
+    p_projected = unembed_homog(p_projected_homog)
+
+    return p_projected
+

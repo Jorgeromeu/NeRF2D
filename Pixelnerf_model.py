@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from einops import rearrange
 
 from positional_encoding import PositionalEncoding
 
@@ -65,7 +66,8 @@ class NeRF(nn.Module):
             skip_indices: list[int] = None,
             n_layers: int = 8,
             d_hidden: int = 256,
-            if_hidden: int = 1000
+            if_hidden: int = 50,
+            nr_images: int = 5
     ):
         super().__init__()
 
@@ -76,6 +78,7 @@ class NeRF(nn.Module):
 
         self.d_input = d_pos_input
 
+        self.nr_images = nr_images
         # positional encoding
         self.pos_pe = PositionalEncoding(n_freqs_position)
         self.dir_pe = PositionalEncoding(n_freqs_direction)
@@ -88,52 +91,76 @@ class NeRF(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
+        self.avgpool = nn.AvgPool1d(nr_images)
+
         # Create model layers
-        self.layers = nn.ModuleList(
-            [nn.Linear(d_x_enc + if_hidden, d_hidden)] +
+# <<<<<<< HEAD
+
+        # self.layers = nn.ModuleList(
+        #     [nn.Linear(d_x_enc + if_hidden, d_hidden)] +
+        #     [nn.Linear(d_hidden + d_x_enc, d_hidden) if i + 1 in self.skip_indices else
+        #      nn.Linear(d_hidden, d_hidden)
+        #      for i in range(n_layers - 1)])
+
+        # 24 + 50 + 6
+        self.layers_list = [nn.ModuleList(
+            [nn.Linear(d_x_enc + if_hidden + d_d_enc, d_hidden)] +
             [nn.Linear(d_hidden + d_x_enc, d_hidden) if i + 1 in self.skip_indices else
              nn.Linear(d_hidden, d_hidden)
-             for i in range(n_layers - 1)]
-        )
+             for i in range(n_layers - 1)]) for i in range(self.nr_images)]
 
         # maps to density
         self.density_head = nn.Linear(d_hidden, 1)
 
         # maps to color, with viewdir
-        self.color_layer = nn.Linear(d_hidden + d_d_enc, d_hidden // 2)
+        self.color_layer = nn.Linear(d_hidden, d_hidden // 2)
         self.color_head = nn.Linear(d_hidden // 2, 3)
 
     def forward(
             self,
-            x: torch.Tensor,
+            x,
             d: torch.Tensor,
-            image_features: torch.Tensor
+            image_features
     ) -> torch.Tensor:
         # apply positional encoding
-        pos_enc = self.pos_pe(x)
         dir_enc = self.dir_pe(d)
 
         # apply model layers
-        z = torch.cat([pos_enc, image_features], dim = 1)
-        for i, layer in enumerate(self.layers):
 
-            if i not in self.skip_indices:
+        v = []
 
-                z = self.relu(layer(z))
+        for i, layers in enumerate(self.layers_list):
+            pos_enc = self.pos_pe(x[i])
+            cur_image_features = rearrange(image_features[i], 'a b -> b a')
 
-            else:
-                z = torch.cat([z, pos_enc], dim=1)
-                z = self.relu(layer(z))
+            # 24 + 50 + 6
+            z = torch.cat([pos_enc, cur_image_features, dir_enc], dim=1)
 
-        # immediately get density
-        density = self.relu(self.density_head(z))
+            for i, layer in enumerate(layers):
+                if i not in self.skip_indices:
 
+                    z = self.relu(layer(z))
 
+                else:
+                    z = torch.cat([z, pos_enc], dim=1)
+                    z = self.relu(layer(z))
+            v.append(z)
+            # immediately get density
+
+        stacked_v = torch.stack(v, dim = 0)
+        stacked_v = stacked_v.permute(1, 2, 0)
+        average_v = self.avgpool(stacked_v).squeeze()
+
+        # average_v = average_v.permute(1, 2, 0)
+
+        density = self.relu(self.density_head(average_v))
+
+        # density =
 
         # concatenate feature map with view direction
-        z = torch.cat([z, dir_enc], dim=1)
-        z = self.relu(self.color_layer(z))
-        color = self.sigmoid(self.color_head(z))
+        # z = torch.cat([z, dir_enc], dim=1)
+        average_v = self.relu(self.color_layer(average_v))
+        color = self.sigmoid(self.color_head(average_v))
 
         output = torch.cat([color, density], dim=1)
 
