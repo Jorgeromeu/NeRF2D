@@ -37,8 +37,13 @@ def read_image_folder(path: Path):
 
 def get_exact_pixels(points):
     points = torch.round(points)
-    points = torch.clip(points, min = -250, max = 249)
+    points[points > 249] = 250
+    points[points < -250] = 250
     points = points + 250
+
+    points[points < 500] -= 499
+    points = abs(points)
+    # points = abs( points - 499)
     return points
 
 
@@ -180,7 +185,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
         for train_im in train_ims:
             train_im_d = train_im.squeeze(-1)
             features = image_model.forward(train_im_d)
-            self.feature_maps.append(features)
+            features_padded = np.zeros((features.shape[0], features.shape[1] + 1))
+
+            # Copy the values from the original tensor into the new tensor starting from the second row
+            features_padded[:, : - 1] = features
+            features_padded = torch.tensor(features_padded).float()
+            self.feature_maps.append(features_padded)
 
         self.model = NeRF(
             d_pos_input=2,
@@ -190,7 +200,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             n_layers=n_layers,
             d_hidden=d_hidden,
             skip_indices=[n_layers // 2],
-            if_hidden =len(self.feature_maps) * 20
+            if_hidden =len(self.feature_maps) * 50
         )
 
 
@@ -220,20 +230,20 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
     def sample_features(self, query_points):
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
-        cp0 = self.coordinateProjector.project_coordinates_1d(points_flat, 0).squeeze()
+        pixels = self.coordinateProjector.project_coordinates_1d(points_flat, 0).squeeze()
 
         # cp0 = (cp0 / max(cp0) * 499)
-        int_cp0 = cp0.to(torch.int)
+        int_pixels = pixels.to(torch.int)
 
-        image_features = self.feature_maps[0][:, int_cp0]
+        image_features = self.feature_maps[0][:, int_pixels]
 
         for i in range(1, len(self.feature_maps)):
 
-            cpi = self.coordinateProjector.project_coordinates_1d(points_flat, i).squeeze()
+            pixels = self.coordinateProjector.project_coordinates_1d(points_flat, i).squeeze()
             # cpi = (cpi / max(cpi) * 499)
-            int_cpi = cpi.to(torch.int)
+            int_pixels = pixels.to(torch.int)
 
-            image_features = torch.cat((image_features, self.feature_maps[i][:, int_cpi]), 0)
+            image_features = torch.cat((image_features, self.feature_maps[i][:, int_pixels]), 0)
         return image_features
 
 
