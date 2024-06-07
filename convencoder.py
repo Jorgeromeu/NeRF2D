@@ -12,15 +12,17 @@ import torch.nn as nn
 class FeatureExtractor(nn.Module):
     def __init__(self):
         super().__init__()
-        self.conv1 = nn.Conv1d(in_channels=3, out_channels=5, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv1d(in_channels=3, out_channels=10, kernel_size=3, stride=1, padding=1)
+        torch.nn.init._no_grad_normal_(self.conv1.weight, 0, 1)
+
         self.bn1 = nn.BatchNorm1d(500)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool1d(kernel_size=3, stride=1, padding=1)
 
         # Defining layers (layer1, layer2, layer3) as examples
-        self.layer1 = self._make_layer(5, 10, 2, 500)
-        self.layer2 = self._make_layer(10, 20, 2, 500)
-        self.layer3 = self._make_layer(20, 20, 2, 500)
+        self.layer1 = self._make_layer(10, 20, 2, 500)
+        self.layer2 = self._make_layer(20, 40, 2, 500)
+        self.layer3 = self._make_layer(40, 50, 2, 500)
 
         for param in self.conv1.parameters():
             param.requires_grad = False
@@ -47,7 +49,9 @@ class FeatureExtractor(nn.Module):
     def _make_layer(self, in_channels, out_channels, blocks, nr_batch):
         layers = []
         for _ in range(blocks):
-            layers.append(nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1, padding=1))
+            conv1d = nn.Conv1d(in_channels, out_channels, kernel_size=3, stride=1, padding=1)
+            torch.nn.init._no_grad_normal_(self.conv1.weight, 0, 1)
+            layers.append(conv1d)
             layers.append(nn.BatchNorm1d(nr_batch))
             layers.append(nn.ReLU(inplace=True))
             in_channels = out_channels
