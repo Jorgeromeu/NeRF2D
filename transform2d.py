@@ -18,6 +18,9 @@ class Transform2D:
     def rotation(self):
         return np.arctan2(self.mx[1, 0], self.mx[0, 0])
 
+    def inverse(self):
+        return Transform2D.from_matrix(self.mx.inverse())
+
     @classmethod
     def identity(cls):
         t = Transform2D()

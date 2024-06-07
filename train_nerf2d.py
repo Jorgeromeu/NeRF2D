@@ -4,11 +4,11 @@ import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 import torch
+import wandb
 from omegaconf import DictConfig
 from pytorch_lightning.callbacks import ModelCheckpoint
 from rootutils import rootutils
 
-import wandb
 from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
 

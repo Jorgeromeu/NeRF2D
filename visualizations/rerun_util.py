@@ -35,3 +35,16 @@ def embed_Transform2D(transform: Transform2D):
     rotation_3d_quat = Rotation.from_euler('z', rotation.item(), degrees=False).as_quat()
 
     return rr.Transform3D(translation=translation_3d, rotation=rotation_3d_quat, scale=1)
+
+def embed_rays(origins, directions, ray_len=1):
+    """
+    Embed 2D rays into Arrows3D
+    """
+
+    return rr.Arrows3D(
+        origins=embed_Points2D(origins),
+        vectors=embed_Points2D(directions) * ray_len
+    )
+
+def pinhole_2D(focal, height):
+    return rr.Pinhole(height=height, focal_length=focal, width=1, camera_xyz=CAM_2D)
