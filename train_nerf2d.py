@@ -4,11 +4,11 @@ import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 import torch
-import wandb
 from omegaconf import DictConfig
 from pytorch_lightning.callbacks import ModelCheckpoint
 from rootutils import rootutils
 
+import wandb
 from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
 
@@ -23,7 +23,7 @@ def main(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
 
     # load dataset
-    dm = NeRF2D_Datamodule(folder=Path('./data/cube/'), batch_size=cfg.data.batch_size)
+    dm = NeRF2D_Datamodule(folder=Path(cfg.data.path), batch_size=cfg.data.batch_size)
 
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
@@ -37,8 +37,9 @@ def main(cfg: DictConfig):
         log_model=True,
     )
 
-    checkpoint_callback = ModelCheckpoint(monitor='val_psnr', mode='max', dirpath='checkpoints')
-    early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
+    # callbacks
+    checkpoint_callback = ModelCheckpoint(monitor='val_psnr', mode='max', dirpath='checkpoints', save_last=True)
+    early_stopping = pl.callbacks.EarlyStopping('val_psnr', patience=cfg.trainer.patience)
 
     trainer = pl.Trainer(
         max_epochs=cfg.trainer.max_epochs,

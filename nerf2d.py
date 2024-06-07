@@ -77,8 +77,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
             skip_indices=[n_layers // 2]
         )
 
-        # metrics
+        # loss
         self.color_loss = torch.nn.MSELoss()
+
+        # metrics
         self.val_psnr = PeakSignalNoiseRatio()
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
@@ -254,7 +256,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         for k, v in losses.items():
             self.log(f'val_{k}', v)
 
-        # log pnsr
+        # log psnr
         self.log('val_psnr', self.val_psnr(colors_pred, colors_gt))
 
         return losses['loss']
