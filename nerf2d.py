@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+
 import pytorch_lightning as pl
 import torch
 import torchvision.transforms.functional as TF
@@ -42,6 +44,13 @@ def volume_rendering_weights(ts, densities):
     weights = alpha * transmittances
 
     return weights
+
+@dataclass
+class NeRFOutput:
+    colors: Tensor
+    depths: Tensor
+    weights: Tensor
+    ts: Tensor
 
 # noinspection PyAttributeOutsideInit
 class NeRF2D_LightningModule(pl.LightningModule):
@@ -105,54 +114,49 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return angles, query_points, ts
 
-    def query_network_chunked(self, query_points: Tensor):
-
-        if query_points.shape[0] <= self.hparams.chunk_size:
-            return self.model(query_points, None)
-
-        n_chunks = len(query_points) // self.hparams.chunk_size + 1
-        chunks = torch.chunk(query_points, n_chunks, dim=0)
-
-        outputs = []
-        for chunk in chunks:
-            out = self.model(chunk)
-            outputs.append(out)
-
-        return torch.cat(outputs, dim=0)
-
     def forward(
             self,
             origins: Tensor,
             directions: Tensor,
-    ) -> (Tensor, Tensor, Tensor):
+    ) -> NeRFOutput:
 
         """
         Perform volume rendering on model given a set of rays
         :param origins: origins of rays N, 3
         :param directions: directions of rays N, 3
-        :return: rendered-colors at rays N, 3
+
+        :return: output tensors:
+            - rendered_colors: N, 3
+            - rendered_depths: N
+            - weights: N, T
+            - ts: T
         """
 
         # query points
         query_angles, query_points, ts = self.compute_query_points(origins, directions)
 
-        # TODO query network in chunks
+        # flatten query points and angles
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
         angles_flat = rearrange(query_angles, 'n t d -> (n t) d')
-        # outputs_flat = self.query_network_chunked(points_flat)
+
+        # query network
         outputs_flat = self.model(points_flat, angles_flat)
+
+        # unflatten outputs
         outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
+
+        # split outputs into colors and densities
         colors = outputs[:, :, 0:3]
         densities = outputs[:, :, 3]
 
         # compute volume rendering weights
         weights = volume_rendering_weights(ts, densities)
 
-        # render colors by weighting samples
+        # render colors/depths by weighting samples
         rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
+        rendered_depths = einsum(weights, ts, 'n t, t -> n')
 
-        # return the rendered color for each ray
-        return rendered_colors, weights, ts
+        return NeRFOutput(rendered_colors, rendered_depths, weights, ts)
 
     def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
         """
@@ -168,11 +172,16 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins = origins.to(self.device)
         directions = directions.to(self.device)
 
-        colors, _, _ = self.forward(origins, directions)
+        outs = self.forward(origins, directions)
 
         # reshape as image
-        colors_im = rearrange(colors, 'h c -> c h 1')
-        return colors_im
+        colors_im = rearrange(outs.colors, 'h c -> c h 1')
+        depth_im = rearrange(outs.depths, 'h -> h 1')
+
+        return {
+            'rgb': colors_im,
+            'depth': depth_im
+        }
 
     def depth_loss(self, gt_depth: Tensor, ts, weights, sigma=1.0):
 
@@ -203,19 +212,19 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return loss
 
-    def compute_losses(self, colors_pred, colors_gt, ts, weights, gt_depth):
+    def compute_losses(self, outs: NeRFOutput, colors_gt: Tensor, gt_depth: Tensor):
 
         """
         Compute losses after a forward pass
         """
 
-        color_loss = self.color_loss(colors_pred, colors_gt)
+        color_loss = self.color_loss(outs.colors, colors_gt)
 
         if not self.hparams.use_depth_supervision:
             return {'loss': color_loss, 'color_loss': color_loss}
         else:
 
-            depth_loss = self.depth_loss(gt_depth, ts, weights, self.hparams.depth_sigma) / 2000
+            depth_loss = self.depth_loss(gt_depth, outs.ts, outs.weights, self.hparams.depth_sigma) / 2000
             total_loss = (1 - self.hparams.depth_loss_weight) * color_loss + self.hparams.depth_loss_weight * depth_loss
 
             return {
@@ -229,10 +238,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins, directions, colors_gt, depth_gt = batch
 
         # forward pass
-        colors_pred, weights, ts = self(origins, directions)
+        outs = self(origins, directions)
 
         # compute losses
-        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
+        losses = self.compute_losses(outs, colors_gt, depth_gt)
 
         for k, v in losses.items():
             self.log(f'train_{k}', v)
@@ -244,26 +253,24 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins, directions, colors_gt, depth_gt = batch
 
         # forward pass
-        colors_pred, weights, ts = self(origins, directions)
+        outs = self(origins, directions)
 
         # save rendered views for logging
-        self.rendered_views.append(colors_pred)
+        self.rendered_views.append(outs.colors)
 
         # compute losses
-        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
+        losses = self.compute_losses(outs, colors_gt, depth_gt)
 
         for k, v in losses.items():
             self.log(f'val_{k}', v)
 
         # log psnr
-        self.log('val_psnr', self.val_psnr(colors_pred, colors_gt))
+        self.log('val_psnr', self.val_psnr(outs.colors, colors_gt))
 
         return losses['loss']
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-
-        # Logging Methods
 
     def on_validation_epoch_end(self) -> None:
         # stack validation renders into a single image
