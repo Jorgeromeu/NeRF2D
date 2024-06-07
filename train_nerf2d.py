@@ -4,11 +4,11 @@ import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 import torch
-import wandb
 from omegaconf import DictConfig
 from pytorch_lightning.callbacks import ModelCheckpoint
 from rootutils import rootutils
 
+import wandb
 from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
 
@@ -23,7 +23,12 @@ def main(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
 
     # load dataset
-    dm = NeRF2D_Datamodule(folder=Path('./data/cube/'), batch_size=cfg.data.batch_size)
+    dm = NeRF2D_Datamodule(
+        folder=Path(cfg.data.folder),
+        batch_size=cfg.data.batch_size,
+        camera_subset=cfg.data.camera_subset,
+        camera_subset_n=cfg.data.camera_subset_n,
+    )
 
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
@@ -32,13 +37,14 @@ def main(cfg: DictConfig):
     wandb_logger = pl_loggers.WandbLogger(
         project=cfg.wandb.project,
         mode='run',
-        job_type=cfg.get('job_type'),
-        name=cfg.get('run_name'),
+        job_type=cfg.wandb.get('job_type'),
+        name=cfg.wandb.get('run_name'),
         log_model=True,
     )
 
-    checkpoint_callback = ModelCheckpoint(monitor='val_psnr', mode='max', dirpath='checkpoints')
-    early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
+    # callbacks
+    checkpoint_callback = ModelCheckpoint(monitor='val_psnr', mode='max', dirpath='checkpoints', save_last=True)
+    early_stopping = pl.callbacks.EarlyStopping('val_psnr', patience=cfg.trainer.patience)
 
     trainer = pl.Trainer(
         max_epochs=cfg.trainer.max_epochs,

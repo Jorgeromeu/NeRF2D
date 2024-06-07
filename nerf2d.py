@@ -34,7 +34,7 @@ def volume_rendering_weights(ts, densities):
     """
 
     delta = ts[1:] - ts[:-1]
-    delta = torch.cat([delta, delta[-1:]], dim=0)
+    delta = torch.cat([delta, Tensor([delta.max()]).to(ts)], dim=0)
 
     delta_density = einsum(densities, delta, 'n t, t -> n t')
     alpha = 1 - torch.exp(-delta_density)
@@ -57,7 +57,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
             t_far=6.,
             n_steps=64,
             chunk_size=30000,
-            n_gt_poses=100
+            n_gt_poses=100,
+            depth_loss_weight=0.5,
+            depth_sigma=0.1,
+            use_depth_supervision=True,
     ):
 
         super().__init__()
@@ -75,8 +78,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
             skip_indices=[n_layers // 2]
         )
 
+        # loss
+        self.color_loss = torch.nn.MSELoss()
+
         # metrics
-        self.criterion = torch.nn.MSELoss()
         self.val_psnr = PeakSignalNoiseRatio()
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
@@ -119,7 +124,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
             self,
             origins: Tensor,
             directions: Tensor,
-    ) -> Tensor:
+    ) -> (Tensor, Tensor, Tensor):
+
         """
         Perform volume rendering on model given a set of rays
         :param origins: origins of rays N, 3
@@ -145,7 +151,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # render colors by weighting samples
         rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
 
-        return rendered_colors
+        # return the rendered color for each ray
+        return rendered_colors, weights, ts
 
     def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
         """
@@ -161,42 +168,104 @@ class NeRF2D_LightningModule(pl.LightningModule):
         origins = origins.to(self.device)
         directions = directions.to(self.device)
 
-        colors = self.forward(origins, directions)
+        colors, _, _ = self.forward(origins, directions)
 
         # reshape as image
         colors_im = rearrange(colors, 'h c -> c h 1')
         return colors_im
 
-    def training_step(self, batch, batch_idx):
-        origins, directions, colors = batch
-        # forward pass
-        colors_pred = self(origins, directions)
+    def depth_loss(self, gt_depth: Tensor, ts, weights, sigma=1.0):
 
-        # compute loss
-        loss = self.criterion(colors_pred, colors)
-        self.log('train_loss', loss)
+        """
+        Compute the depth loss for a single pixel.
+
+        :param ts (torch.Tensor): Depth values along the pixel ray (shape: [100]).
+        :param weights (torch.Tensor): Weights along the pixel ray (shape: [1, 100]).
+        :param depth (torch.Tensor): Ground truth depth of the pixel ray (shape: [1, 1]).
+        :param sigma (float): Standard deviation for the Gaussian weighting, default is 1.0.
+        :return torch.Tensor: The computed depth loss (shape: [1]).
+        """
+
+        # Compute the intervals between sample points
+        dists = ts[1:] - ts[:-1]
+        dist_pad = Tensor([dists.max()]).to(gt_depth)
+
+        dists = torch.cat([dists, dist_pad])
+
+        # Compute the Gaussian weighting term
+        gauss_weight = torch.exp(-0.5 * ((ts - gt_depth) ** 2) / (sigma ** 2))  # Shape: [100]
+
+        # Compute the log probability term
+        log_prob = torch.log(weights + 1e-5)  # Shape: [1, 100]
+
+        # Compute the loss by summing over all sampled points, incorporating the intervals
+        loss = -torch.sum(log_prob * gauss_weight * dists)  # Shape: []
+
         return loss
+
+    def compute_losses(self, colors_pred, colors_gt, ts, weights, gt_depth):
+
+        """
+        Compute losses after a forward pass
+        """
+
+        color_loss = self.color_loss(colors_pred, colors_gt)
+
+        if not self.hparams.use_depth_supervision:
+            return {'loss': color_loss, 'color_loss': color_loss}
+        else:
+
+            depth_loss = self.depth_loss(gt_depth, ts, weights, self.hparams.depth_sigma) / 2000
+            total_loss = (1 - self.hparams.depth_loss_weight) * color_loss + self.hparams.depth_loss_weight * depth_loss
+
+            return {
+                'loss': total_loss,
+                'color_loss': color_loss,
+                'depth_loss': depth_loss,
+            }
+
+    def training_step(self, batch, batch_idx):
+
+        origins, directions, colors_gt, depth_gt = batch
+
+        # forward pass
+        colors_pred, weights, ts = self(origins, directions)
+
+        # compute losses
+        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
+
+        for k, v in losses.items():
+            self.log(f'train_{k}', v)
+
+        return losses['loss']
 
     def validation_step(self, batch, batch_idx):
-        origins, directions, colors = batch
-        # forward pass
-        colors_pred = self(origins, directions)
 
+        origins, directions, colors_gt, depth_gt = batch
+
+        # forward pass
+        colors_pred, weights, ts = self(origins, directions)
+
+        # save rendered views for logging
         self.rendered_views.append(colors_pred)
 
-        # compute loss
-        loss = self.criterion(colors_pred, colors)
-        self.log('val_loss', loss)
-        self.log('val_psnr', self.val_psnr(colors_pred, colors))
-        return loss
+        # compute losses
+        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
+
+        for k, v in losses.items():
+            self.log(f'val_{k}', v)
+
+        # log psnr
+        self.log('val_psnr', self.val_psnr(colors_pred, colors_gt))
+
+        return losses['loss']
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
-    # Logging Methods
+        # Logging Methods
 
     def on_validation_epoch_end(self) -> None:
-
         # stack validation renders into a single image
         all_renders = torch.stack(self.rendered_views, dim=1).detach().cpu()
         all_renders = rearrange(all_renders, 'h w c -> c h w')
@@ -217,7 +286,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         gt_views = []
         for batch in val_dataloader:
-            _, _, colors = batch
+            _, _, colors, _ = batch
             gt_views.append(colors)
 
         gt_all = torch.stack(gt_views, dim=1).detach().cpu()
