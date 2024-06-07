@@ -1,11 +1,11 @@
 import pytorch_lightning as pl
 import torch
 import torchvision.transforms.functional as TF
-import wandb
 from einops import repeat, rearrange, einsum
 from torch import Tensor
 from torchmetrics.image import PeakSignalNoiseRatio
 
+import wandb
 from camera_model_2d import pixel_center_rays
 from nerf_model import NeRF
 
@@ -59,6 +59,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             chunk_size=30000,
             n_gt_poses=100,
             depth_loss_weight=0.5,
+            use_depth_supervision=True,
     ):
 
         super().__init__()
@@ -78,8 +79,6 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # metrics
         self.color_loss = torch.nn.MSELoss()
-        self.depth_loss_weight = depth_loss_weight
-
         self.val_psnr = PeakSignalNoiseRatio()
 
     def compute_query_points(self, origins: Tensor, directions: Tensor):
@@ -123,6 +122,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             origins: Tensor,
             directions: Tensor,
     ) -> (Tensor, Tensor, Tensor):
+
         """
         Perform volume rendering on model given a set of rays
         :param origins: origins of rays N, 3
@@ -171,19 +171,18 @@ class NeRF2D_LightningModule(pl.LightningModule):
         colors_im = rearrange(colors, 'h c -> c h 1')
         return colors_im
 
-    def depth_loss(self, gt_depth, ts, weights, sigma=1.0):
+    def depth_loss(self, gt_depth: Tensor, ts, weights, sigma=1.0):
+
         """
         Compute the depth loss for a single pixel.
 
-        Args:
-            ts (torch.Tensor): Depth values along the pixel ray (shape: [100]).
-            weights (torch.Tensor): Weights along the pixel ray (shape: [1, 100]).
-            depth (torch.Tensor): Ground truth depth of the pixel ray (shape: [1, 1]).
-            sigma (float): Standard deviation for the Gaussian weighting, default is 1.0.
-
-        Returns:
-            torch.Tensor: The computed depth loss (shape: [1]).
+        :param ts (torch.Tensor): Depth values along the pixel ray (shape: [100]).
+        :param weights (torch.Tensor): Weights along the pixel ray (shape: [1, 100]).
+        :param depth (torch.Tensor): Ground truth depth of the pixel ray (shape: [1, 1]).
+        :param sigma (float): Standard deviation for the Gaussian weighting, default is 1.0.
+        :return torch.Tensor: The computed depth loss (shape: [1]).
         """
+
         device = gt_depth.device
 
         # Compute the intervals between sample points
@@ -202,44 +201,63 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return loss
 
+    def compute_losses(self, colors_pred, colors_gt, ts, weights, gt_depth):
+
+        """
+        Compute losses after a forward pass
+        """
+
+        color_loss = self.color_loss(colors_pred, colors_gt)
+
+        if self.hparams.use_depth_supervision:
+
+            depth_loss = self.depth_loss(gt_depth, ts, weights) / 5000
+            total_loss = (1 - self.hparams.depth_loss_weight) * color_loss + self.hparams.depth_loss_weight * depth_loss
+
+            return {
+                'loss': total_loss,
+                'depth_loss': depth_loss,
+            }
+
+        else:
+
+            return {'loss': color_loss, 'color_loss': color_loss}
+
     def training_step(self, batch, batch_idx):
-        origins, directions, colors, gt_depth = batch
+
+        origins, directions, colors_gt, depth_gt = batch
+
         # forward pass
         colors_pred, weights, ts = self(origins, directions)
 
-        # compute loss
-        color_loss = self.color_loss(colors_pred, colors)
-        depth_loss = self.depth_loss(gt_depth, ts, weights)
-        depth_loss = depth_loss / 5000
-        total_loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+        # compute losses
+        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
 
-        # log the losses
-        self.log('train_color_loss', color_loss)
-        self.log('train_depth_loss', depth_loss)
-        self.log('train_loss', total_loss)
+        for k, v in losses.items():
+            self.log(f'train_{k}', v)
 
-        return total_loss
+        return losses['loss']
 
     def validation_step(self, batch, batch_idx):
-        origins, directions, colors, gt_depth = batch
+
+        origins, directions, colors_gt, depth_gt = batch
+
         # forward pass
         colors_pred, weights, ts = self(origins, directions)
 
+        # save rendered views for logging
         self.rendered_views.append(colors_pred)
 
-        # compute loss
-        color_loss = self.color_loss(colors_pred, colors)
-        depth_loss = self.depth_loss(gt_depth, ts, weights)
-        depth_loss = depth_loss / 5000
-        loss = (1 - self.depth_loss_weight) * color_loss + self.depth_loss_weight * depth_loss
+        # compute losses
+        losses = self.compute_losses(colors_pred, colors_gt, ts, weights, depth_gt)
 
-        # log the losses
-        self.log('val_color_loss', color_loss)
-        self.log('val_depth_loss', depth_loss)
-        self.log('val_loss', loss)
+        for k, v in losses.items():
+            self.log(f'val_{k}', v)
 
-        self.log('val_psnr', self.val_psnr(colors_pred, colors))
-        return loss
+        # log pnsr
+        self.log('val_psnr', self.val_psnr(colors_pred, colors_gt))
+
+        return losses['loss']
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
