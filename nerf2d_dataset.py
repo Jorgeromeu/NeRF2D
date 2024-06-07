@@ -9,7 +9,7 @@ from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 
-from nerf2d import get_rays2d
+from camera_model_2d import pixel_center_rays
 
 def read_image_folder(path: Path):
     with open(path / 'transforms.json') as f:
@@ -53,7 +53,7 @@ class NeRFDataset2D(TensorDataset):
 
         # get a ray for each pixel
         # TODO hardcoded
-        rays = [get_rays2d(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
+        rays = [pixel_center_rays(self.image_resolution, self.focal_length, c2w) for c2w in self.poses]
         origins = torch.stack([ray[0] for ray in rays])
         dirs = torch.stack([ray[1] for ray in rays])
 

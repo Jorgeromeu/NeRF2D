@@ -169,7 +169,6 @@ lightning_logs/
 t # Custom environment files
 cv-env/
 
-multirun/
-outputs/
-data/cube/
-data/cube_depth/
+outputs/*
+multirun/*
+data/*
