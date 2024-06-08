@@ -23,7 +23,7 @@ viewdirs = torch.linspace(0, 2 * np.pi, angle_res)
 
 torch.set_grad_enabled(False)
 
-nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v16.ckpt', t_far=6).cpu()
+nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v1.ckpt', t_far=6).cpu()
 volume = nerf.model
 
 rr.init('radiance_field', spawn=True)

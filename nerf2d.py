@@ -184,6 +184,28 @@ class NeRF2D_LightningModule(pl.LightningModule):
             'depth': depth_im
         }
 
+    def render_density_field(self, res=100, lo=-3, hi=3):
+
+        # densely sample field
+        xs = torch.linspace(lo, hi, res)
+        ys = torch.linspace(lo, hi, res)
+
+        x, y = torch.meshgrid(xs, ys)
+        coords = torch.stack([x, y], dim=-1)
+        coords_flat = rearrange(coords, 'h w c -> (h w) c')
+
+        # random viewdirs, only care about density
+        dirs = torch.randn(coords_flat.shape[0], 1).to()
+
+        # query MLP
+        with torch.no_grad():
+            densities = self.model(coords_flat.to(self.device), dirs.to(self.device))[:, -1]
+
+        densities = rearrange(densities, '(h w) -> h w', h=res)
+        densities = (densities - densities.min()) / (densities.max() - densities.min())
+
+        return densities
+
     def depth_loss(self, gt_depth: Tensor, ts, weights, sigma=1.0):
 
         """
@@ -261,6 +283,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # save rendered views for logging
         self.val_renders.append(outs.colors)
+        self.val_depths.append(self.normalize_depth(outs.depths.unsqueeze(-1)))
 
         # compute losses
         losses = self.compute_losses(outs, colors_gt, depth_gt)
@@ -275,10 +298,19 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         self.log_views('val_renders', self.val_renders)
+        self.log_views('val_depths', self.val_depths)
+
+        # render density field
+        density_field = self.render_density_field()
+
+        self.trainer.logger.experiment.log({
+            'density': wandb.Image(density_field)
+        })
 
     def on_validation_epoch_start(self) -> None:
         # clear validation renders for epoch
         self.val_renders = []
+        self.val_depths = []
 
     def test_step(self, batch, batch_idx):
 
@@ -289,26 +321,39 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # save rendered views for logging
         self.test_renders.append(outs.colors)
+        self.test_depths.append(self.normalize_depth(outs.depths.unsqueeze(-1)))
 
         # log psnr
         self.log('test_psnr', self.val_psnr(outs.colors, colors_gt))
 
     def on_test_epoch_end(self) -> None:
         self.log_views('test_renders', self.test_renders)
+        self.log_views('test_depths', self.test_depths)
 
     def on_test_epoch_start(self) -> None:
         # clear test renders
         self.test_renders = []
+        self.test_depths = []
 
     def on_train_start(self) -> None:
-        gt_views = [colors for _, _, colors, _ in self.trainer.val_dataloaders]
+        gt_views, gt_depth = self.get_gt_views(self.trainer.val_dataloaders)
         self.log_views('val_renders_gt', gt_views)
+        self.log_views('val_depth_gt', gt_depth)
 
     def on_test_start(self) -> None:
-        test_loader_og = self.trainer.test_dataloaders
-        test_loader = DataLoader(test_loader_og.dataset, batch_size=test_loader_og.batch_size)
-        gt_views = [colors for _, _, colors, _ in test_loader]
+        gt_views, gt_depth = self.get_gt_views(self.trainer.test_dataloaders)
         self.log_views('test_renders_gt', gt_views)
+        self.log_views('test_depth_gt', gt_depth)
+
+    def get_gt_views(self, loader):
+        # make a copy of dataloader
+        new_loader = DataLoader(loader.dataset, batch_size=loader.batch_size)
+        gt_views = [colors for _, _, colors, _ in new_loader]
+        gt_depth = [self.normalize_depth(depth) for _, _, _, depth in new_loader]
+        return gt_views, gt_depth
+
+    def normalize_depth(self, depth: Tensor):
+        return (depth - self.hparams.t_near) / (self.hparams.t_far - self.hparams.t_near)
 
     def log_views(self, label: str, views: list[Tensor], size=255):
 
