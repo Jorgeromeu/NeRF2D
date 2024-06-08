@@ -10,7 +10,7 @@ from imageencoder import ImageEncoder
 import numpy as np
 
 
-from camera_model_2d import pixel_center_rays, project, transform_p
+from camera_model_2d import pixel_center_rays, project, transform_p, transform_d
 
 import wandb
 from Pixelnerf_model import NeRF
@@ -43,7 +43,6 @@ def get_exact_pixels(points):
 
     points[points < 500] -= 499
     points = abs(points)
-    # points = abs( points - 499)
     return points
 
 
@@ -59,7 +58,7 @@ class ProjectCoordinate:
         self.c2ws = [c2w for c2w in poses]
 
     # TODO:
-    def project_coordinates_1d(self, xy_coords, camera_index):
+    def project_coordinates_1d(self, xy_coords, directions,  camera_index):
         """
         Projects 2D coordinates onto 1D image axis.
 
@@ -74,50 +73,18 @@ class ProjectCoordinate:
         """
         c2w = self.c2ws[camera_index]
 
-        # w2c = torch.inverse(c2w)
 
         projected_points = project(xy_coords, self.focal_length, c2w.inverse())
 
         points = transform_p(xy_coords, c2w.inverse())
 
-        pixels = get_exact_pixels(projected_points).int()
+        directions = transform_d(directions, c2w.inverse())
 
-        return pixels, points
+        pixels = get_exact_pixels(projected_points)
+        pixels = pixels.int()
 
+        return pixels, points, directions
 
-        # Apply the intrinsic camera matrix for 1D projection
-        # K = torch.tensor([
-        #     [self.focal_length, self.image_resolution / 2, 0],
-        #     [0, 1, 0],
-        #     [0, 0, 1]
-        # ], device=xy_coords.device)
-        # print(xy_camera)
-
-
-        # print(ans)
-        # print('please', xy_camera[0, 1] * self.focal_length / xy_camera[0, 0])
-        #
-        # K = torch.tensor([
-        #     [float(self.focal_length), 0, 0],
-        #     [float(self.image_resolution), 0, 0],
-        #     [0, 0, 1]
-        # ], device=xy_coords.device)
-        #
-        # # K = torch.tensor([
-        # #     [self.focal_length, 0, 0],
-        # #     [float(self.image_resolution), 1, 0],
-        # #     [0, 0, 1]
-        # # ], device=xy_coords.device)
-        #
-        # # Project the normalized device coordinates to 1D coordinates
-        # uvw = (K @ xy_camera.T).T  # (Nx3)
-        #
-        # # print(uvw)
-        #
-        # # Normalize to get the u pixel coordinates
-        # # u = uvw[:, 1] / uvw[:, 0] * self.focal_length  # (N)
-        # u = uvw[:, 0] / uvw[:, 2]  # (N)
-        # return u
 
 def sample_stratified(near, far, n_samples):
     bin_borders = torch.linspace(near, far, n_samples + 1)
@@ -191,7 +158,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
             # Copy the values from the original tensor into the new tensor starting from the second row
             features_padded[:, : - 1] = features
-            features_padded = torch.tensor(features_padded).float()
+            features_padded = torch.tensor(features_padded).float().cuda()
             self.feature_maps.append(features_padded)
 
         self.model = NeRF(
@@ -202,7 +169,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             n_layers=n_layers,
             d_hidden=d_hidden,
             skip_indices=[n_layers // 2],
-            if_hidden = 50,
+            if_hidden = 120,
             nr_images = 5
         )
 
@@ -224,34 +191,39 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # compute query points for each ray
         query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
-        image_features, proj_points_list = self.sample_features(query_points)
-        query_dirs = repeat(directions, 'b d -> b t d', t=len(ts))
-
-        angles = torch.atan2(query_dirs[:, :, 1], query_dirs[:, :, 0]).unsqueeze(-1)
-        return angles, proj_points_list, ts, image_features
+        directions_repeat  = directions.unsqueeze(1).expand(-1, 100, -1)
 
 
-    def sample_features(self, query_points):
+        image_features, proj_points_list, directions_list = self.sample_features(query_points, directions_repeat)
+
+        return proj_points_list, ts, image_features, query_points, directions_list
+
+
+    def sample_features(self, query_points, directions):
         points_flat = rearrange(query_points, 'n t d -> (n t) d')
+        directions_flat = rearrange(directions, 'n t d -> (n t) d')
+
 
         image_features = []
 
         proj_points_list = []
 
+        directions_list = []
+
         for i in range(len(self.feature_maps)):
 
-            pixels, proj_points = self.coordinateProjector.project_coordinates_1d(points_flat, i)
+            pixels, proj_points, proj_directions = self.coordinateProjector.project_coordinates_1d(points_flat, directions_flat,  i)
 
-
-            # cpi = (cpi / max(cpi) * 499)
-            int_pixels = pixels.squeeze().int()
+            int_pixels = pixels.squeeze().int().cuda()
 
             proj_points_list.append(proj_points)
 
+            directions_list.append(proj_directions)
 
-            image_features.append(self.feature_maps[i][:, int_pixels])
 
-        return image_features, proj_points_list
+            image_features.append(self.feature_maps[i][:, int_pixels.cuda()].cuda())
+
+        return image_features, proj_points_list, directions_list
 
 
 
@@ -281,16 +253,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
         :param directions: directions of rays N, 3
         :return: rendered-colors at rays N, 3
         """
-
         # query points
-        query_angles, proj_points_list, ts, image_features = self.compute_query_points(origins, directions)
+        proj_points_list, ts, image_features, query_points, directions_list = self.compute_query_points(origins, directions)
 
         # TODO query network in chunks
-        # points_flat = rearrange(query_points, 'n t d -> (n t) d')
-        angles_flat = rearrange(query_angles, 'n t d -> (n t) d')
-        # outputs_flat = self.query_network_chunked(points_flat)
-        # image_features = rearrange(image_features, 'a b -> b a')
-        outputs_flat = self.model(proj_points_list, angles_flat, image_features)
+        outputs_flat = self.model(proj_points_list, directions_list, image_features)
+
         outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
         colors = outputs[:, :, 0:3]
         densities = outputs[:, :, 3]

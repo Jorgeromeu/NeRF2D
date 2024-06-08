@@ -44,13 +44,15 @@ class ImageEncoder(nn.Module):
         x = self.model.bn1(x)
         x = self.model.relu(x)
 
-        x = self.model.maxpool(x)
-        x = self.model.layer1(x)
-        x = self.model.layer2(x)
-        x = self.model.layer3(x)
+        x1 = self.model.maxpool(x)
+        x2 = self.model.layer1(x1)
+        x3 = self.model.layer2(x2)
+        x4 = self.model.layer3(x3)
 
 
-        self.latent = x
+
+        self.latent = torch.cat([x1,x2,x3,x4], dim = 0)
+
 
         return self.latent
 
