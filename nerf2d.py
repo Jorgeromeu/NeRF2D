@@ -5,6 +5,7 @@ import torch
 import torchvision.transforms.functional as TF
 from einops import repeat, rearrange, einsum
 from torch import Tensor
+from torch.utils.data import DataLoader
 from torchmetrics.image import PeakSignalNoiseRatio
 
 import wandb
@@ -233,6 +234,9 @@ class NeRF2D_LightningModule(pl.LightningModule):
                 'depth_loss': depth_loss,
             }
 
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+
     def training_step(self, batch, batch_idx):
 
         origins, directions, colors_gt, depth_gt = batch
@@ -269,6 +273,13 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return losses['loss']
 
+    def on_validation_epoch_end(self) -> None:
+        self.log_views('val_renders', self.val_renders)
+
+    def on_validation_epoch_start(self) -> None:
+        # clear validation renders for epoch
+        self.val_renders = []
+
     def test_step(self, batch, batch_idx):
 
         origins, directions, colors_gt, depth_gt = batch
@@ -276,43 +287,46 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # forward pass
         outs = self(origins, directions)
 
+        # save rendered views for logging
+        self.test_renders.append(outs.colors)
+
         # log psnr
         self.log('test_psnr', self.val_psnr(outs.colors, colors_gt))
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+    def on_test_epoch_end(self) -> None:
+        self.log_views('test_renders', self.test_renders)
 
-    def on_validation_epoch_end(self) -> None:
-
-        # stack validation renders into a single image
-        all_renders = torch.stack(self.val_renders, dim=1).detach().cpu()
-        all_renders = rearrange(all_renders, 'h w c -> c h w')
-        all_renders = TF.resize(all_renders, (256, 256), interpolation=TF.InterpolationMode.NEAREST)
-        all_renders = TF.to_pil_image(all_renders)
-
-        self.trainer.logger.experiment.log({
-            'renders': wandb.Image(all_renders)
-        })
-
-    def on_validation_epoch_start(self) -> None:
-        # clear validation renders for epoch
-        self.val_renders = []
+    def on_test_epoch_start(self) -> None:
+        # clear test renders
+        self.test_renders = []
 
     def on_train_start(self) -> None:
-        # log ground-truth renders
-        val_dataloader = self.trainer.val_dataloaders
+        gt_views = [colors for _, _, colors, _ in self.trainer.val_dataloaders]
+        self.log_views('val_renders_gt', gt_views)
 
-        gt_views = []
-        for batch in val_dataloader:
-            _, _, colors, _ = batch
-            gt_views.append(colors)
+    def on_test_start(self) -> None:
+        test_loader_og = self.trainer.test_dataloaders
+        test_loader = DataLoader(test_loader_og.dataset, batch_size=test_loader_og.batch_size)
+        gt_views = [colors for _, _, colors, _ in test_loader]
+        self.log_views('test_renders_gt', gt_views)
 
-        gt_all = torch.stack(gt_views, dim=1).detach().cpu()
+    def log_views(self, label: str, views: list[Tensor], size=255):
 
-        gt_all = rearrange(gt_all, 'h w c -> c h w')
-        gt_all = TF.resize(gt_all, (256, 256), interpolation=TF.InterpolationMode.NEAREST)
-        gt_all = TF.to_pil_image(gt_all)
+        """
+        Log a list of views to wandb
+        :label wandb label
+        :param views: list of views of Tensors H, C
+        :param size output resolution
+        """
+
+        if len(views) == 0:
+            return
+
+        views_all = torch.stack(views, dim=1).detach().cpu()
+        views_all = rearrange(views_all, 'h w c -> c h w')
+        views_all = TF.resize(views_all, (size, size), interpolation=TF.InterpolationMode.NEAREST)
+        views_all = TF.to_pil_image(views_all)
 
         self.trainer.logger.experiment.log({
-            'renders_gt': wandb.Image(gt_all)
+            label: wandb.Image(views_all)
         })
