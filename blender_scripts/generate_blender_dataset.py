@@ -27,15 +27,6 @@ def sample_circle(radius, num_points):
 
     return pos, angles_cameras
 
-def render_from_cameras(cams, folder: Path):
-    # get all cameras
-    scene = bpy.context.scene
-
-    for camera in cams:
-        scene.camera = camera  # Set the active camera
-        bpy.context.scene.render.filepath = str(folder / camera.name)  # Set the output path
-        bpy.ops.render.render(write_still=True)  # Render the image
-
 def set_camera_config(scene, camera, focal_px, res_x, res_y):
     # set resolution
     scene.render.resolution_x = res_x * 4
@@ -118,7 +109,6 @@ class GenerateDatasetOp(bpy.types.Operator):
 
         # if no collection selected, create a new one
         if ctx.collection.name == 'Scene Collection':
-            print('aaa')
             self.report({'ERROR'}, 'Select a collection for cameras')
             return {'CANCELLED'}
 
@@ -181,6 +171,11 @@ class RenderDatasetOp(bpy.types.Operator):
             scene.camera = camera  # Set the active camera
             bpy.context.scene.render.filepath = str(views_folder / f'cam-{i}.png')  # Set the output path
             bpy.ops.render.render(write_still=True)  # Render the image
+
+            try:
+                os.rename(views_folder / '0000.npz', views_folder / f'cam-{i}.npz')
+            except FileNotFoundError:
+                pass
 
     def save_transforms(self, positions, angles, focal, views_folder: Path):
 

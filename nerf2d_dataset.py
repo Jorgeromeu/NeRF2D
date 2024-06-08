@@ -1,9 +1,11 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 from einops import rearrange
+from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 import numpy as np
@@ -33,24 +35,32 @@ def read_image_folder(path: Path):
 
     focal = transforms_json['focal']
 
-    return ims, poses, focal
+    depths = np.stack([np.load(path / f'cam-{i}.npz')['depth_map'] for i in range(len(poses))])
+    depths = rearrange(depths, 'n h d -> n d h 1')
+    depths = Tensor(depths)
+
+    return ims, poses, focal, depths
+
+def get_n_evenly_spaced_views(views, n):
+    return views[::(len(views) // (n + 1))][:-1]
 
 class NeRFDataset2D(TensorDataset):
     """
     Each item is a ray, and its corresponding pixel color
     """
 
-    def __init__(self, images: torch.Tensor, poses: torch.Tensor, focal_length: float):
+    def __init__(self, images: torch.Tensor, poses: torch.Tensor, focal_length: float, depths: torch.Tensor):
         """
         :param images: Images in dataset N, C, H, W
         :param poses: poses in dataset N, 3, 3
         :param focal_length: focal_length of cameras
         """
 
-        # save poses, focal length and images
+        # save poses, focal length, images and depth data
         self.poses = poses
         self.focal_length = focal_length
         self.ims = images
+        self.depths = depths
 
         self.image_resolution = images.shape[2]
 
@@ -62,38 +72,58 @@ class NeRFDataset2D(TensorDataset):
 
         # remove width dimension
         ims_no_w = rearrange(self.ims, 'n c h 1 -> n c h')
+        depths_no_w = rearrange(self.depths, 'n d h 1 -> n d h')
 
         # flatten all images and rays
         colors_flat = rearrange(ims_no_w, 'n c h -> (n h) c')
         origins_flat = rearrange(origins, 'n h d -> (n h) d')
         dirs_flat = rearrange(dirs, 'n h d -> (n h) d')
 
+        # flatten depth data
+        # depths_flat = rearrange(self.depths, 'n h 1 -> (n h)')
+        depths_flat = rearrange(depths_no_w, 'n c h -> (n h) c')
+
         # each entry is a tuple of (origin, direction, pixel_color)
-        super().__init__(origins_flat, dirs_flat, colors_flat)
+        super().__init__(origins_flat, dirs_flat, colors_flat, depths_flat)
 
 class NeRF2D_Datamodule(pl.LightningDataModule):
 
-    def __init__(self, folder: Path, batch_size=100):
+    def __init__(
+            self, folder: Path,
+            batch_size=100,
+            camera_subset=False,
+            camera_subset_n=5,
+    ):
         super().__init__()
 
         self.save_hyperparameters(ignore=['folder'])
 
         # read training images and poses
-        self.train_ims, self.train_poses, self.train_focal = read_image_folder(folder / 'train')
+        self.train_ims, self.train_poses, self.train_focal, self.train_depths = read_image_folder(folder / 'train')
         self.train_height = self.train_ims.shape[2]
-        self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal)
+
+        if camera_subset:
+            self.train_ims = get_n_evenly_spaced_views(self.train_ims, camera_subset_n)
+            self.train_poses = get_n_evenly_spaced_views(self.train_poses, camera_subset_n)
+            self.train_depths = get_n_evenly_spaced_views(self.train_depths, camera_subset_n)
+
+        self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal, self.train_depths)
+
+        # sample n-random train_ims
+        idxs = np.random.choice(len(self.train_dataset), 10)
 
         # read test images and poses
-        self.test_ims, self.test_poses, self.test_focal = read_image_folder(folder / 'test')
+        self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(folder / 'test')
         self.test_height = self.test_ims.shape[2]
-        self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal)
+        self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal, self.test_depths)
 
         # save additional hyperparams
         self.hparams.n_train_images = len(self.train_dataset)
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size)
+        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15,
+                          persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.test_height)
+        return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
