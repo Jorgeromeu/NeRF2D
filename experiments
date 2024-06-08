@@ -1,0 +1,53 @@
+import argparse
+import yaml
+import os
+from train_nerf2d import main as train_nerf2d
+from omegaconf import DictConfig
+
+
+def run_for_parameter_and_depth_supervision(parameter, values, use_depth_supervision_list, default_cfg):
+    for value in values:
+        for use_depth_supervision in use_depth_supervision_list:
+
+            cfg = default_cfg.copy()
+            cfg['model'][parameter] = value
+            cfg['model']['use_depth_supervision'] = use_depth_supervision
+            cfg['wandb']['run_name'] = f"{parameter}_{value}" + ("_depthNerf" if use_depth_supervision else "_NeRF2D")
+            cfg['model']['lr'] = 1e-4 
+
+            # Convert cfg to a DictConfig
+            cfg = DictConfig(cfg)
+
+            # Run the experiment
+            train_nerf2d(cfg)
+
+def hyperparameter_test():
+    
+    use_depth_supervision_list = [True, False]  # model: use_depth_supervision: x
+
+    freq_pos_list = [4, 5, 6, 7, 8, 9, 10]  # model: n_freqs_pos: x
+    freq_dir_list = [2, 3, 4]               # model: n_freqs_dir: x
+    n_layers_list = [4, 5, 6, 7, 8, 9]      # model: n_layers: x
+    hidden_dim_list = [128, 256, 512]       # model: d_hidden: x
+
+    # Load the existing configuration
+    with open('config/config.yaml', 'r') as f:
+        default_cfg = yaml.safe_load(f)
+
+    print("Default configuration:", default_cfg)
+
+    # Frequency positional
+    run_for_parameter_and_depth_supervision('n_freqs_pos', freq_pos_list, use_depth_supervision_list, default_cfg)
+
+    # Frequency directional
+    run_for_parameter_and_depth_supervision('n_freqs_dir', freq_dir_list, use_depth_supervision_list, default_cfg)
+
+    # Number of layers
+    run_for_parameter_and_depth_supervision('n_layers', n_layers_list, use_depth_supervision_list, default_cfg)
+
+    # Hidden dimension
+    run_for_parameter_and_depth_supervision('d_hidden', hidden_dim_list, use_depth_supervision_list, default_cfg)
+
+
+if __name__ == '__main__':
+    hyperparameter_test()
