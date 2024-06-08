@@ -99,21 +99,26 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
 
         self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal, self.train_depths)
 
-        # sample n-random train_ims
-        idxs = np.random.choice(len(self.train_dataset), 10)
-
         # read test images and poses
         self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(folder / 'test')
         self.test_height = self.test_ims.shape[2]
         self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal, self.test_depths)
+
+        # read val images and poses
+        self.val_ims, self.val_poses, self.val_focal, self.val_depths = read_image_folder(folder / 'val')
+        self.val_height = self.test_ims.shape[2]
+        self.val_dataset = NeRFDataset2D(self.val_ims, self.val_poses, self.val_focal, self.val_depths)
 
         # save additional hyperparams
         self.hparams.n_train_images = len(self.train_dataset)
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15,
-                          persistent_workers=True)
+        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, num_workers=15,
+                          persistent_workers=True, shuffle=True)
 
     def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
+
+    def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)

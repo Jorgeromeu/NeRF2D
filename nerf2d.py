@@ -256,7 +256,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         outs = self(origins, directions)
 
         # save rendered views for logging
-        self.rendered_views.append(outs.colors)
+        self.val_renders.append(outs.colors)
 
         # compute losses
         losses = self.compute_losses(outs, colors_gt, depth_gt)
@@ -269,12 +269,23 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return losses['loss']
 
+    def test_step(self, batch, batch_idx):
+
+        origins, directions, colors_gt, depth_gt = batch
+
+        # forward pass
+        outs = self(origins, directions)
+
+        # log psnr
+        self.log('test_psnr', self.val_psnr(outs.colors, colors_gt))
+
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
 
     def on_validation_epoch_end(self) -> None:
+
         # stack validation renders into a single image
-        all_renders = torch.stack(self.rendered_views, dim=1).detach().cpu()
+        all_renders = torch.stack(self.val_renders, dim=1).detach().cpu()
         all_renders = rearrange(all_renders, 'h w c -> c h w')
         all_renders = TF.resize(all_renders, (256, 256), interpolation=TF.InterpolationMode.NEAREST)
         all_renders = TF.to_pil_image(all_renders)
@@ -285,7 +296,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
     def on_validation_epoch_start(self) -> None:
         # clear validation renders for epoch
-        self.rendered_views = []
+        self.val_renders = []
 
     def on_train_start(self) -> None:
         # log ground-truth renders

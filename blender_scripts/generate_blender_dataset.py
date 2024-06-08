@@ -172,10 +172,7 @@ class RenderDatasetOp(bpy.types.Operator):
             bpy.context.scene.render.filepath = str(views_folder / f'cam-{i}.png')  # Set the output path
             bpy.ops.render.render(write_still=True)  # Render the image
 
-            try:
-                os.rename(views_folder / '0000.npz', views_folder / f'cam-{i}.npz')
-            except FileNotFoundError:
-                pass
+            os.rename(views_folder / '0000.npz', views_folder / f'cam-{i}.npz')
 
     def save_transforms(self, positions, angles, focal, views_folder: Path):
 

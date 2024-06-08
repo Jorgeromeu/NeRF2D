@@ -59,6 +59,7 @@ def main(cfg: DictConfig):
 
     # train
     trainer.fit(model, dm)
+    trainer.test(model, dm)
 
     wandb.finish()
 
