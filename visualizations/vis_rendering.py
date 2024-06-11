@@ -1,23 +1,25 @@
-from pathlib import Path
-
 import rerun as rr
 import torch
+import wandb
 from einops import rearrange, einsum
 
 import rerun_util as ru
 from camera_model_2d import pixel_center_rays
-from nerf2d import NeRF2D_LightningModule, volume_rendering_weights
-from nerf2d_dataset import read_image_folder, NeRFDataset2D
+from nerf2d import volume_rendering_weights
+from nerf2d_dataset import NeRFDataset2D, NeRF2D_Datamodule
 from transform2d import Transform2D
+from wandb_utils import load_from_checkpoint_api, get_artifact_dir_api
 
-ckpt = '../checkpoints/last-v4.ckpt'
 dataset_path = '../data/cube/val'
-nerf = NeRF2D_LightningModule.load_from_checkpoint(
-    ckpt,
-).cpu()
 cam_idx = 20
 
-ims, poses, focal, depths = read_image_folder(Path(dataset_path))
+api = wandb.Api()
+nerf = load_from_checkpoint_api(api, 'romeu/NeRF2D/model-0admfivm:v0').cpu()
+
+dataset_folder = get_artifact_dir_api(api, 'romeu/NeRF2D/bunny:v0')
+dm = NeRF2D_Datamodule(dataset_folder, 1, 1)
+
+ims, poses, focal, depths = dm.val_ims, dm.val_poses, dm.val_focal, dm.val_depths
 height = ims[0].shape[1]
 dataset = NeRFDataset2D(ims, poses, focal, depths)
 

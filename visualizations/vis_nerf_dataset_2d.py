@@ -12,8 +12,8 @@ scene = 'bunny'
 split = 'test'
 
 folder = data_folder / scene / split
-n_rays = 100
-shuffle = False
+n_rays = 2000
+shuffle = True
 sample = True
 
 # Load the dataset
@@ -28,7 +28,6 @@ origins = torch.stack([ray[0] for ray in dataset])
 dirs = torch.stack([ray[1] for ray in dataset])
 colors = torch.stack([ray[2] for ray in dataset])
 depths = torch.Tensor([ray[3].item() for ray in dataset]).unsqueeze(-1)
-depths = torch.ones_like(depths) * 1.5
 
 if shuffle:
     # shuffle all arrays

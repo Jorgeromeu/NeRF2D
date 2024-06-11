@@ -13,6 +13,10 @@ from camera_model_2d import pixel_center_rays
 from nerf_model import NeRF
 
 def sample_stratified(near, far, n_samples):
+    """
+    Sample stratified points between near and far
+    """
+
     bin_borders = torch.linspace(near, far, n_samples + 1)
     lowers = bin_borders[:-1]
     bin_width = (far - near) / n_samples
@@ -48,6 +52,10 @@ def volume_rendering_weights(ts, densities):
 
 @dataclass
 class NeRFOutput:
+    """
+    Data class for NeRF output tensors
+    """
+
     colors: Tensor
     depths: Tensor
     weights: Tensor
@@ -345,9 +353,14 @@ class NeRF2D_LightningModule(pl.LightningModule):
         self.log_views('test_renders_gt', gt_views)
         self.log_views('test_depth_gt', gt_depth)
 
-    def get_gt_views(self, loader):
+    def get_gt_views(self, dataloader):
+
+        """
+        Get the ground truth views of a dataloader
+        """
+
         # make a copy of dataloader
-        new_loader = DataLoader(loader.dataset, batch_size=loader.batch_size)
+        new_loader = DataLoader(dataloader.dataset, batch_size=dataloader.batch_size)
         gt_views = [colors for _, _, colors, _ in new_loader]
         gt_depth = [self.normalize_depth(depth) for _, _, _, depth in new_loader]
         return gt_views, gt_depth
