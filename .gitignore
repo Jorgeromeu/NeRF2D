@@ -172,3 +172,5 @@ cv-env/
 outputs/*
 multirun/*
 data/*
+visualizations/artifacts/*
+visualizations/__pycache__/*
