@@ -1,10 +1,13 @@
+import numpy as np
 import rerun as rr
 import torch
 from einops import rearrange, einsum
 
 import rerun_util as ru
+from camera_model_2d import pixel_center_rays
 from dummy_volume import DummyVolume
-from nerf2d import NeRF2D_LightningModule, get_rays2d, volume_render
+from nerf2d import NeRF2D_LightningModule, volume_rendering_weights
+from transform2d import Transform2D
 
 volume_res = 500
 res = 100
@@ -43,7 +46,7 @@ def visualize_rendering(res, f, c2w, volume, nerf: NeRF2D_LightningModule):
     rr.log('camera', rr.Image(image))
 
     # get camera rays
-    o, d = get_rays2d(res, f, c2w.as_matrix())
+    o, d = pixel_center_rays(res, f, c2w.as_matrix())
 
     # # visualize rays
 
@@ -60,7 +63,7 @@ def visualize_rendering(res, f, c2w, volume, nerf: NeRF2D_LightningModule):
     densities = outputs[:, :, 3]
 
     # compute volume rendering weights
-    weights = volume_render(ts, densities)
+    weights = volume_rendering_weights(ts, densities)
 
     # visualize query points: size is weight color is color
     weights_flat = rearrange(weights, 'n t -> (n t)')
@@ -85,28 +88,25 @@ nerf = NeRF2D_LightningModule.load_from_checkpoint('../checkpoints/last-v16.ckpt
 
 visualize_volume('volume', nerf.model, res=volume_res)
 
-# def uniform_spaced_circle(radius, num_points):
-#     angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
-#     x = radius * np.cos(angles)
-#     y = radius * np.sin(angles)
-#
-#     pos = np.stack([x, y], axis=1)
-#     dirs = -pos / np.linalg.norm(pos)
-#
-#     return pos, angles + np.pi
-#
-# pos, angles = uniform_spaced_circle(4, 100)
-#
-# # volume = DummyVolume(density=10)
-# volume = nerf.model
-#
-# # visualize volume
-# # visualize_volume('volume', volume, res=100)
-#
-# for i in range(len(pos)):
-#     translation = torch.tensor(pos[i])
-#     rotation = angles[i]
-#
-#     c2w = Transform2D.from_translation_and_rotation(translation, rotation)
-#
-#     visualize_rendering(res, f, c2w, volume, nerf)
+def uniform_spaced_circle(radius, num_points):
+    angles = np.linspace(0, 2 * np.pi, num_points + 1)[:num_points]
+    x = radius * np.cos(angles)
+    y = radius * np.sin(angles)
+
+    pos = np.stack([x, y], axis=1)
+    dirs = -pos / np.linalg.norm(pos)
+
+    return pos, angles + np.pi
+
+pos, angles = uniform_spaced_circle(4, 100)
+
+# volume = DummyVolume(density=10)
+volume = nerf.model
+
+for i in range(len(pos)):
+    translation = torch.tensor(pos[i])
+    rotation = angles[i]
+
+    c2w = Transform2D.from_translation_and_rotation(translation, rotation)
+
+    visualize_rendering(res, f, c2w, volume, nerf)

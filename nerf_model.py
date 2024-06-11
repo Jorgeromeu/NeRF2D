@@ -134,4 +134,3 @@ class NeRF(nn.Module):
         output = torch.cat([color, density], dim=1)
 
         return output
-    

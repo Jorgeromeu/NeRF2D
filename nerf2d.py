@@ -37,7 +37,7 @@ def volume_rendering_weights(ts, densities):
     """
 
     delta = ts[1:] - ts[:-1]
-    delta = torch.cat([delta, Tensor([delta.max()]).to(ts)], dim=0)
+    delta = torch.cat([delta, Tensor([1e10]).to(ts)], dim=0)
 
     delta_density = einsum(densities, delta, 'n t, t -> n t')
     alpha = 1 - torch.exp(-delta_density)
@@ -184,13 +184,13 @@ class NeRF2D_LightningModule(pl.LightningModule):
             'depth': depth_im
         }
 
-    def render_density_field(self, res=100, lo=-3, hi=3):
+    def render_density_field(self, res=100, lo=-1.5, hi=1.5):
 
         # densely sample field
         xs = torch.linspace(lo, hi, res)
-        ys = torch.linspace(lo, hi, res)
+        ys = torch.linspace(hi, lo, res)
 
-        x, y = torch.meshgrid(xs, ys)
+        x, y = torch.meshgrid(xs, ys, indexing='xy')
         coords = torch.stack([x, y], dim=-1)
         coords_flat = rearrange(coords, 'h w c -> (h w) c')
 
@@ -352,8 +352,18 @@ class NeRF2D_LightningModule(pl.LightningModule):
         gt_depth = [self.normalize_depth(depth) for _, _, _, depth in new_loader]
         return gt_views, gt_depth
 
-    def normalize_depth(self, depth: Tensor):
-        return (depth - self.hparams.t_near) / (self.hparams.t_far - self.hparams.t_near)
+    def normalize_depth(self, depth: Tensor, neg_depth_to_max=True):
+
+        t_n = self.hparams.t_near
+        t_f = self.hparams.t_far
+
+        # set negative depths to max depth
+        if neg_depth_to_max:
+            depth = torch.where(depth < 0, t_f, depth)
+
+        clipped = torch.clamp(depth, t_n, t_f)
+        normalized = (clipped - t_n) / (t_f - t_n)
+        return 1 - normalized
 
     def log_views(self, label: str, views: list[Tensor], size=255):
 
