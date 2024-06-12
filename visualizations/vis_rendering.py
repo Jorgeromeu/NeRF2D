@@ -5,16 +5,18 @@ from einops import rearrange, einsum
 
 import rerun_util as ru
 from camera_model_2d import pixel_center_rays
-from nerf2d import volume_rendering_weights
+from nerf2d import volume_rendering_weights, NeRF2D_LightningModule
 from nerf2d_dataset import NeRFDataset2D, NeRF2D_Datamodule
 from transform2d import Transform2D
-from wandb_utils import load_from_checkpoint_api, get_artifact_dir_api
+from wandb_utils import get_artifact_dir_api, get_ckpt
 
 dataset_path = '../data/cube/val'
 cam_idx = 20
 
 api = wandb.Api()
-nerf = load_from_checkpoint_api(api, 'romeu/NeRF2D/model-0admfivm:v0').cpu()
+artifact = api.artifact('romeu/NeRF2D/model-0admfivm:v0')
+ckpt = get_ckpt(artifact)
+nerf = NeRF2D_LightningModule.load_from_checkpoint(ckpt, t_near=2, t_far=6.0).cpu()
 
 dataset_folder = get_artifact_dir_api(api, 'romeu/NeRF2D/bunny:v0')
 dm = NeRF2D_Datamodule(dataset_folder, 1, 1)

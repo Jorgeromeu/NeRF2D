@@ -74,7 +74,6 @@ class NeRF2D_LightningModule(pl.LightningModule):
             t_near=2.,
             t_far=6.,
             n_steps=64,
-            chunk_size=30000,
             n_gt_poses=100,
             depth_loss_weight=0.5,
             depth_sigma=0.1,

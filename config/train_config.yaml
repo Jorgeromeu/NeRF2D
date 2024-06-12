@@ -15,26 +15,25 @@ trainer:
   max_epochs: 1000
   min_epochs: 0
   overfit_batches: false
-  check_val_every_n_epoch: 10
-  log_every_n_steps: 1
-  patience: 30
+  check_val_every_n_epoch: 20
+  log_every_n_steps: 10
+  patience: 20
 
 data:
-  artifact: bunny:v1
+  artifact: cube:latest
   batch_size: 1000
   camera_subset: false
   camera_subset_n: 5
 
 model:
-  t_near: 0.1
-  t_far: 12
-  n_steps: 200
+  t_near: 1.5
+  t_far: 7
+  n_steps: 100
   n_freqs_pos: 8
   n_freqs_dir: 5
   n_layers: 6
   d_hidden: 128
-  chunk_size: 30000
   lr: 1e-4
   depth_loss_weight: 0.25
   depth_sigma: 0.1
-  use_depth_supervision: true
+  use_depth_supervision: false

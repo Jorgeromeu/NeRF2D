@@ -38,10 +38,10 @@ def set_camera_config(scene, camera, focal_px, res_x, res_y):
     scene.render.pixel_aspect_y = res_x / res_y
 
     # set intrinsics
-    # sensor_w = max(res_x, res_y)
-    # camera.data.sensor_height = sensor_w
-    # camera.data.sensor_width = sensor_w
-    # camera.data.lens = focal_px
+    sensor_w = max(res_x, res_y)
+    camera.data.sensor_height = sensor_w
+    camera.data.sensor_width = sensor_w
+    camera.data.lens = focal_px
 
 class GenerateDatasetOp(bpy.types.Operator):
     bl_idname = "wm.generate_dataset"
@@ -172,32 +172,10 @@ class RenderDatasetOp(bpy.types.Operator):
             bpy.context.scene.render.filepath = str(views_folder / f'cam-{i}.png')  # Set the output path
             bpy.ops.render.render(write_still=True)  # Render the image
 
-            os.rename(views_folder / '0000.npz', views_folder / f'cam-{i}.npz')
-
-    def render_top_view(self):
-
-        camera = bpy.ops.object.camera_add(
-            location=(0, 0, 10),
-            rotation=(0, 0, 0),
-        )
-
-        scene = bpy.context.scene
-
-        scene.render.resolution_x = 100 * 4
-        scene.render.resolution_y = 100 * 4
-        scene.render.resolution_percentage = 25
-
-        # set aspect ratio
-        scene.render.pixel_aspect_x = 1.0
-        scene.render.pixel_aspect_y = 1.0
-
-        # TODO name the file
-        scene.camera = camera  # Set the active camera
-        bpy.context.scene.render.filepath = str(views_folder / f'cam-{i}.png')  # Set the output path
-        bpy.ops.render.render(write_still=True)  # Render the image
-
-        # delete cam
-        # bpy.data.objects.remove(bpy.context.object, do_unlink=True)
+            try:
+                os.rename(views_folder / '0000.npz', views_folder / f'cam-{i}.npz')
+            except FileNotFoundError:
+                pass
 
     def save_transforms(self, positions, angles, focal, views_folder: Path):
 
@@ -243,10 +221,8 @@ class RenderDatasetOp(bpy.types.Operator):
             os.remove(views_folder / file)
 
         # save dataset
-        # self.render_from_cameras(cams, views_folder)
-        # self.save_transforms(positions, angles, focal, views_folder)
-
-        self.render_top_view()
+        self.render_from_cameras(cams, views_folder)
+        self.save_transforms(positions, angles, focal, views_folder)
 
         return {'FINISHED'}
 
