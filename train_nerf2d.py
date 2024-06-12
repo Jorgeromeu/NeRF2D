@@ -15,7 +15,7 @@ from nerf2d_dataset import NeRF2D_Datamodule
 # use project working directory
 rootutils.setup_root(__file__, indicator=".project-root", dotenv=True, pythonpath=True, cwd=True)
 
-@hydra.main(version_base=None, config_path='config', config_name='config')
+@hydra.main(version_base=None, config_path='config', config_name='train_config')
 def main(cfg: DictConfig):
     torch.set_float32_matmul_precision('high')
 

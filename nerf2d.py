@@ -10,6 +10,7 @@ from torchmetrics.image import PeakSignalNoiseRatio
 
 import wandb
 from camera_model_2d import pixel_center_rays
+from nerf2d_dataset import plot_poses
 from nerf_model import NeRF
 
 def sample_stratified(near, far, n_samples):
@@ -131,8 +132,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         """
         Perform volume rendering on model given a set of rays
-        :param origins: origins of rays N, 3
-        :param directions: directions of rays N, 3
+        :param origins: origins of rays N, 2
+        :param directions: directions of rays N, 2
 
         :return: output tensors:
             - rendered_colors: N, 3
@@ -307,13 +308,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
     def on_validation_epoch_end(self) -> None:
         self.log_views('val_renders', self.val_renders)
         self.log_views('val_depths', self.val_depths)
-
-        # render density field
-        density_field = self.render_density_field()
-
-        self.trainer.logger.experiment.log({
-            'density': wandb.Image(density_field)
-        })
+        self.log_density_field()
 
     def on_validation_epoch_start(self) -> None:
         # clear validation renders for epoch
@@ -337,6 +332,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
     def on_test_epoch_end(self) -> None:
         self.log_views('test_renders', self.test_renders)
         self.log_views('test_depths', self.test_depths)
+        self.log_density_field()
 
     def on_test_epoch_start(self) -> None:
         # clear test renders
@@ -347,6 +343,9 @@ class NeRF2D_LightningModule(pl.LightningModule):
         gt_views, gt_depth = self.get_gt_views(self.trainer.val_dataloaders)
         self.log_views('val_renders_gt', gt_views)
         self.log_views('val_depth_gt', gt_depth)
+
+        dm = self.trainer.datamodule
+        self.wandb_log({'train_views': wandb.Image(plot_poses(dm.train_poses))})
 
     def on_test_start(self) -> None:
         gt_views, gt_depth = self.get_gt_views(self.trainer.test_dataloaders)
@@ -365,18 +364,21 @@ class NeRF2D_LightningModule(pl.LightningModule):
         gt_depth = [self.normalize_depth(depth) for _, _, _, depth in new_loader]
         return gt_views, gt_depth
 
-    def normalize_depth(self, depth: Tensor, neg_depth_to_max=True):
+    def normalize_depth(self, depth: Tensor):
 
         t_n = self.hparams.t_near
         t_f = self.hparams.t_far
 
-        # set negative depths to max depth
-        if neg_depth_to_max:
-            depth = torch.where(depth < 0, t_f, depth)
-
         clipped = torch.clamp(depth, t_n, t_f)
         normalized = (clipped - t_n) / (t_f - t_n)
         return 1 - normalized
+
+    def remap_depth(self, depth: Tensor):
+        # map from 0 to 1 to t_n t_f
+        t_n = self.hparams.t_near
+        t_f = self.hparams.t_far
+
+        return (1 - depth) * (t_f - t_n) + t_n
 
     def log_views(self, label: str, views: list[Tensor], size=255):
 
@@ -395,6 +397,11 @@ class NeRF2D_LightningModule(pl.LightningModule):
         views_all = TF.resize(views_all, (size, size), interpolation=TF.InterpolationMode.NEAREST)
         views_all = TF.to_pil_image(views_all)
 
-        self.trainer.logger.experiment.log({
-            label: wandb.Image(views_all)
-        })
+        self.wandb_log({label: wandb.Image(views_all)})
+
+    def log_density_field(self):
+        density_field = self.render_density_field()
+        self.wandb_log({'density': wandb.Image(density_field)})
+
+    def wandb_log(self, d: dict):
+        self.trainer.logger.experiment.log(d)
