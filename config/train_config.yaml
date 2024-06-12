@@ -1,11 +1,6 @@
 seed: 0
 dev_run: false
 
-defaults:
-  - override hydra/launcher: basic
-  - override hydra/hydra_logging: colorlog
-  - override hydra/job_logging: colorlog
-
 wandb:
   run_name: null
   job_type: train
