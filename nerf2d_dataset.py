@@ -39,24 +39,6 @@ def read_image_folder(path: Path, t_far=6):
 def get_n_evenly_spaced_views(views, n):
     return views[::(len(views) // (n + 1))][:-1]
 
-def plot_poses(poses: list[Tensor]):
-    poses = [Transform2D.from_matrix(pose) for pose in poses]
-
-    positions = torch.stack([pose.translation() for pose in poses])
-    angles = torch.stack([pose.rotation() for pose in poses])
-
-    dx = torch.cos(angles)
-    dy = torch.sin(angles)
-    d = torch.stack([dx, dy], dim=1)
-
-    fig, ax = plt.subplots()
-    plt.quiver(positions[:, 0], positions[:, 1], d[:, 0], d[:, 1])
-    plt.xlim(-6, 6)
-    plt.ylim(-6, 6)
-    ax.set_aspect('equal', 'box')
-    fig.tight_layout()
-    return fig
-
 class NeRFDataset2D(TensorDataset):
     """
     Each item is a ray, and its corresponding pixel color

@@ -10,7 +10,6 @@ from torchmetrics.image import PeakSignalNoiseRatio
 
 import wandb
 from camera_model_2d import pixel_center_rays
-from nerf2d_dataset import plot_poses
 from nerf_model import NeRF
 
 def sample_stratified(near, far, n_samples):
@@ -343,9 +342,6 @@ class NeRF2D_LightningModule(pl.LightningModule):
         gt_views, gt_depth = self.get_gt_views(self.trainer.val_dataloaders)
         self.log_views('val_renders_gt', gt_views)
         self.log_views('val_depth_gt', gt_depth)
-
-        dm = self.trainer.datamodule
-        self.wandb_log({'train_views': wandb.Image(plot_poses(dm.train_poses))})
 
     def on_test_start(self) -> None:
         gt_views, gt_depth = self.get_gt_views(self.trainer.test_dataloaders)

@@ -6,6 +6,7 @@ from tqdm import tqdm
 from wandb.apis.public import Run, File
 
 from nerf2d import NeRF2D_LightningModule
+from nerf2d_dataset import NeRF2D_Datamodule
 from wandb import CommError, Artifact
 
 def example_train_run(api) -> Run:
@@ -101,6 +102,12 @@ def first_logged_artifact_of_type(run: Run, artifact_type: str) -> Artifact:
             return artifact
     return None
 
+def first_used_artifact_of_type(run: Run, artifact_type: str) -> Artifact:
+    for artifact in run.used_artifacts():
+        if artifact.type == artifact_type:
+            return artifact
+    return None
+
 # Use-case specific
 
 def get_artifact_dir_api(api, artifact_id: str):
@@ -120,3 +127,23 @@ def load_from_checkpoint_api(api, artifact_id: str) -> NeRF2D_LightningModule:
     checkpoint = get_checkpoint_api(api, artifact_id)
     model = NeRF2D_LightningModule.load_from_checkpoint(checkpoint)
     return model
+
+def get_ckpt(artifact: Artifact):
+    path = Path(artifact.download())
+    return path / 'model.ckpt'
+
+def load_lm(model_artifact: Artifact) -> NeRF2D_LightningModule:
+    """
+    Load a model from a model artifact
+    """
+    ckpt = get_ckpt(model_artifact)
+    return NeRF2D_LightningModule.load_from_checkpoint(ckpt)
+
+def load_dm(data_artifact: Artifact, model_artifact: Artifact) -> NeRF2D_Datamodule:
+    """
+    Load a datamodule from a data artifact and model artifact
+    """
+    path = Path(data_artifact.download())
+    ckpt = get_ckpt(model_artifact)
+    dm = NeRF2D_Datamodule.load_from_checkpoint(ckpt, folder=path)
+    return dm
