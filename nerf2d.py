@@ -380,7 +380,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         return (1 - depth) * (t_f - t_n) + t_n
 
-    def log_views(self, label: str, views: list[Tensor], size=255):
+    def log_views(self, label: str, views: list[Tensor], size=100):
 
         """
         Log a list of views to wandb

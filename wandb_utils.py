@@ -12,6 +12,30 @@ def example_train_run(api) -> Run:
     run: Run = api.run("romeu/NeRF2D/5x9fjp84")
     return run
 
+class RunWrapper:
+    """
+    Utility class over runs to provide a better interface
+    """
+
+    def __init__(self, run: Run):
+        self.run = run
+        self.files = [f for f in run.files()]
+        self.id = run.id
+
+    def get_files_by_regex(self: Run, pattern: Pattern) -> list[File]:
+        files = [f for f in self.files if pattern.match(f.name)]
+        return files
+
+    def get_files_by_label(self, label: str) -> list[File]:
+        pattern = re.compile(r'.*/' + label + r'_(\d+).*\.png')
+        files = self.get_files_by_regex(pattern)
+        files = sorted(files, key=lambda f: parse_file_name(Path(f.name))['step'])
+        return files
+
+    def get_last_file_by_label(self, label: str) -> list[File]:
+        files = self.get_files_by_label(label)
+        return [files[-1]]
+
 class RunDataManager:
     """
     Utility class for downloading and caching files from wandb runs
@@ -42,6 +66,14 @@ class RunDataManager:
         self._download_files(files, self._run_dir(run), replace=replace)
         return self.read_run_files(run, files)
 
+    def download_run_files_by_label(self, run: RunWrapper, label: str, replace=False) -> list[Path]:
+        files = run.get_files_by_label(label)
+        return self.download_run_files(run.run, files, replace=replace)
+
+    def download_last_run_file_by_label(self, run: RunWrapper, label: str, replace=False) -> list[Path]:
+        files = run.get_last_file_by_label(label)
+        return self.download_run_files(run.run, files, replace=replace)
+
     def read_run_files(
             self,
             run: Run,
@@ -56,23 +88,8 @@ class RunDataManager:
 
         return files
 
-def get_files_by_regex(run: Run, pattern: Pattern) -> list[File]:
-    files = [f for f in run.files() if pattern.match(f.name)]
-    return files
-
-def get_files_by_label(run: Run, label: str) -> list[File]:
-    pattern = re.compile(r'.*/' + label + r'_(\d+).*\.png')
-    return get_files_by_regex(run, pattern)
-
-def get_last_file_by_label(run: Run, label: str) -> list[File]:
-    files = get_files_by_label(run, label)
-    return [files[-1]]
-
-def sort_by_step(files: list[Path]):
-    return sorted(files, key=lambda f: int(f.stem.split('_')[-2]))
-
 def parse_file_name(file: Path):
-    label, step, _ = file.stem.split('_')
+    label, step, _ = file.stem.rsplit('_', maxsplit=2)
     return {
         'label': label,
         'step': int(step),

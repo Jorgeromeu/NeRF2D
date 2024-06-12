@@ -40,7 +40,7 @@ def main(cfg: DictConfig):
         t_far=model.hparams.t_far
     )
 
-    # setup training loop
+    # setup trainer
     wandb_logger = pl_loggers.WandbLogger(
         project=cfg.wandb.project,
         mode='run',
