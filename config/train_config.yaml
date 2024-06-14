@@ -1,5 +1,7 @@
 seed: 0
+
 dev_run: false
+dry_run: false
 
 wandb:
   run_name: null

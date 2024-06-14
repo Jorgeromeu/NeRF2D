@@ -4,7 +4,7 @@ import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 import torch
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from pytorch_lightning.callbacks import ModelCheckpoint
 from rootutils import rootutils
 
@@ -17,6 +17,11 @@ rootutils.setup_root(__file__, indicator=".project-root", dotenv=True, pythonpat
 
 @hydra.main(version_base=None, config_path='config', config_name='train_config')
 def main(cfg: DictConfig):
+
+    if cfg.dry_run:
+        # print(OmegaConf.to_yaml(cfg))
+        return
+
     torch.set_float32_matmul_precision('high')
 
     # ensure reproducibility

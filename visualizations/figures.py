@@ -103,12 +103,12 @@ def compare_runs(
         row = -1
         if with_renders:
             row += 1
-            gt_render = read_image(manager.download_last_run_file_by_label(runs[0], 'val_renders_gt')[0])
+            gt_render = read_image(manager.download_last_run_file_by_label(runs[0], 'test_renders_gt')[0])
             axs[row, 0].imshow(gt_render.permute(1, 2, 0))
 
         if with_depth:
             row += 1
-            gt_depth = read_image(manager.download_last_run_file_by_label(runs[0], 'val_depth_gt')[0],
+            gt_depth = read_image(manager.download_last_run_file_by_label(runs[0], 'test_depth_gt')[0],
                                   ImageReadMode.GRAY)
             axs[row, 0].imshow(gt_depth[0], cmap=depth_cmap)
 
@@ -125,19 +125,19 @@ def compare_runs(
 
         if with_renders:
             row += 1
-            render = read_image(manager.download_last_run_file_by_label(run, 'val_renders')[-1])
+            render = read_image(manager.download_last_run_file_by_label(run, 'test_renders')[-1])
             ax = axs[row, i + gt_offset]
             ax.imshow(render.permute(1, 2, 0))
 
             if show_psnr:
-                psnr = run.run.summary["val_psnr"]
+                psnr = run.run.summary["test_psnr"]
                 H = render[0].shape[0]
                 W = render[0].shape[1]
                 ax.text(W * 0.05, H * 0.95, f'PSNR: {psnr:.2f}', color='red', fontsize=10)
 
         if with_depth:
             row += 1
-            depth = read_image(manager.download_last_run_file_by_label(run, 'val_depths')[0])
+            depth = read_image(manager.download_last_run_file_by_label(run, 'test_depths')[0])
             ax = axs[row, i + gt_offset]
             ax.imshow(depth[0], cmap=depth_cmap)
 
