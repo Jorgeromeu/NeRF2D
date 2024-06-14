@@ -40,30 +40,38 @@ def poses_to_quiver(poses: Tensor):
     # pass
     plt.quiver(positions[:, 0], positions[:, 1], d[:, 0], d[:, 1], color='tab:blue', label='test')
 
-def vis_datamodule(dm: NeRF2D_Datamodule, H=100, W=100):
+def vis_datamodule(dms: list[NeRF2D_Datamodule], H=100, W=100, scale=5, show_views=False):
     nerf = NeRF2D_LightningModule(t_near=1.5, t_far=7)
 
-    ims = dm.test_ims
-    depths = dm.test_depths
+    fig, axs = plt.subplots(1, 3, figsize=(3 * scale, 1 * scale))
 
-    ims_im = rearrange(ims, 'n c h 1 -> c h n')
-    ims_im = TF.resize(ims_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
+    for dm in dms:
 
-    depths_im = rearrange(depths, 'n c h 1 -> c h n')
-    depths_im = nerf.normalize_depth(depths_im)
-    depths_im = TF.resize(depths_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
+        ims = dm.test_ims
+        depths = dm.test_depths
 
-    fig, axs = plt.subplots(1, 3, figsize=(5, 10))
-    axs[1].imshow(ims_im.permute(1, 2, 0))
-    axs[2].imshow(depths_im.permute(1, 2, 0), cmap='gray')
-    for ax in axs:
-        ax.axis('off')
+        axs = axs.reshape(1, 3)
 
-    x, y, dx, dy = poses_to_quiver(dm.test_poses)
-    axs[0].quiver(x, y, dx, dy, color='tab:blue', label='test')
-    axs[0].axis('equal')
+        ims_im = rearrange(ims, 'n c h 1 -> c h n')
+        ims_im = TF.resize(ims_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
 
+        depths_im = rearrange(depths, 'n c h 1 -> c h n')
+        depths_im = nerf.normalize_depth(depths_im)
+        depths_im = TF.resize(depths_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
 
+        ax_im = axs[0, 1]
+        ax_depth = axs[0, 2]
+        ax_cams = axs[0, 0]
+
+        ax_im.imshow(ims_im.permute(1, 2, 0))
+        ax_depth.imshow(depths_im.permute(1, 2, 0), cmap='gray')
+        for ax in axs.flatten():
+            ax.axis('off')
+
+        ax_cams.quiver(*poses_to_quiver(dm.train_poses), color='tab:green', label='train')
+        ax_cams.quiver(*poses_to_quiver(dm.test_poses), color='tab:blue', label='test')
+        ax_cams.legend()
+        ax_cams.axis('equal')
 
     fig.tight_layout()
 
