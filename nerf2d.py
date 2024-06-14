@@ -3,12 +3,12 @@ from dataclasses import dataclass
 import pytorch_lightning as pl
 import torch
 import torchvision.transforms.functional as TF
+import wandb
 from einops import repeat, rearrange, einsum
 from torch import Tensor
 from torch.utils.data import DataLoader
 from torchmetrics.image import PeakSignalNoiseRatio
 
-import wandb
 from camera_model_2d import pixel_center_rays
 from nerf_model import NeRF
 
@@ -354,7 +354,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         """
 
         # make a copy of dataloader
-        new_loader = DataLoader(dataloader.dataset_artifact, batch_size=dataloader.batch_size)
+        new_loader = DataLoader(dataloader.dataset, batch_size=dataloader.batch_size)
         gt_views = [colors for _, _, colors, _ in new_loader]
         gt_depth = [self.normalize_depth(depth) for _, _, _, depth in new_loader]
         return gt_views, gt_depth
