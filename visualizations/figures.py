@@ -3,12 +3,14 @@ from pathlib import Path
 import imageio
 import torch
 import torchvision.transforms.functional as TF
+from einops import rearrange
 from matplotlib import pyplot as plt
 from torch import Tensor
 from torchvision.io import read_image, ImageReadMode
 
+from nerf2d import NeRF2D_LightningModule
+from nerf2d_dataset import NeRF2D_Datamodule
 from transform2d import Transform2D
-from visualizations.vis_rendering import nerf
 from wandb_utils import RunWrapper, RunDataManager, first_used_artifact_of_type, parse_run_file_name
 
 def make_gif_from_run(manager, run: RunWrapper, label, out_path: Path, duration=0.1):
@@ -37,6 +39,33 @@ def poses_to_quiver(poses: Tensor):
 
     # pass
     plt.quiver(positions[:, 0], positions[:, 1], d[:, 0], d[:, 1], color='tab:blue', label='test')
+
+def vis_datamodule(dm: NeRF2D_Datamodule, H=100, W=100):
+    nerf = NeRF2D_LightningModule(t_near=1.5, t_far=7)
+
+    ims = dm.test_ims
+    depths = dm.test_depths
+
+    ims_im = rearrange(ims, 'n c h 1 -> c h n')
+    ims_im = TF.resize(ims_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
+
+    depths_im = rearrange(depths, 'n c h 1 -> c h n')
+    depths_im = nerf.normalize_depth(depths_im)
+    depths_im = TF.resize(depths_im, (H, W), interpolation=TF.InterpolationMode.NEAREST_EXACT)
+
+    fig, axs = plt.subplots(1, 3, figsize=(5, 10))
+    axs[1].imshow(ims_im.permute(1, 2, 0))
+    axs[2].imshow(depths_im.permute(1, 2, 0), cmap='gray')
+    for ax in axs:
+        ax.axis('off')
+
+    x, y, dx, dy = poses_to_quiver(dm.test_poses)
+    axs[0].quiver(x, y, dx, dy, color='tab:blue', label='test')
+    axs[0].axis('equal')
+
+
+
+    fig.tight_layout()
 
 def compare_runs(
         runs: list[RunWrapper],

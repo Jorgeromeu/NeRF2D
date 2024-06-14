@@ -129,3 +129,11 @@ def load_dm_from_artifact(data_artifact: Artifact, model_artifact: Artifact) -> 
     ckpt = get_ckpt(model_artifact)
     dm = NeRF2D_Datamodule.load_from_checkpoint(ckpt, folder=path)
     return dm
+
+def load_dm_from_artifact_no_train(data_artifact: Artifact) -> NeRF2D_Datamodule:
+    """
+    Load a datamodule from a data artifact without a model artifact
+    """
+    path = Path(data_artifact.download())
+    dm = NeRF2D_Datamodule(folder=path)
+    return dm

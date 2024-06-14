@@ -4,11 +4,11 @@ import hydra
 import pytorch_lightning as pl
 import pytorch_lightning.loggers as pl_loggers
 import torch
-import wandb
 from omegaconf import DictConfig
 from pytorch_lightning.callbacks import ModelCheckpoint
 from rootutils import rootutils
 
+import wandb
 from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
 
@@ -23,11 +23,15 @@ def main(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
 
     # initialize run
-    wandb.init(project=cfg.wandb.project, job_type=cfg.wandb.job_type, name=cfg.wandb.get('run_name'))
+    if not cfg.dev_run:
+        wandb.init(project=cfg.wandb.project, job_type=cfg.wandb.job_type, name=cfg.wandb.get('run_name'))
 
-    # download dataset
-    dataset_artifact = wandb.use_artifact(cfg.data.artifact)
-    dataset_dir = Path(dataset_artifact.download())
+        # download dataset
+        dataset_artifact = wandb.use_artifact(cfg.data.artifact)
+        dataset_dir = Path(dataset_artifact.download())
+
+    if cfg.dev_run:
+        dataset_dir = Path('data/cube')
 
     # load dataset
     dm = NeRF2D_Datamodule(
