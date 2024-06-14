@@ -174,3 +174,4 @@ multirun/*
 data/*
 visualizations/artifacts/*
 visualizations/__pycache__/*
+run_data/

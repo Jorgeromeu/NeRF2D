@@ -5,13 +5,11 @@ import numpy as np
 import pytorch_lightning as pl
 import torch
 from einops import rearrange
-from matplotlib import pyplot as plt
 from torch import Tensor
 from torch.utils.data import TensorDataset, DataLoader
 from torchvision.io import read_image
 
 from camera_model_2d import pixel_center_rays
-from transform2d import Transform2D
 
 def read_image_folder(path: Path, t_far=6):
     with open(path / 'transforms.json') as f:
