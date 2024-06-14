@@ -8,9 +8,8 @@ from omegaconf import DictConfig
 from rootutils import rootutils
 
 import wandb
-from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
-from wandb_utils import get_model_checkpoint
+from wandb_utils import load_lm_from_artifact
 
 # use project working directory
 rootutils.setup_root(__file__, indicator=".project-root", dotenv=True, pythonpath=True, cwd=True)
@@ -27,8 +26,7 @@ def main(cfg: DictConfig):
 
     # load model
     model_artifact = wandb.use_artifact(cfg.model.artifact)
-    model_dir = Path(model_artifact.download())
-    model = NeRF2D_LightningModule.load_from_checkpoint(get_model_checkpoint(model_dir))
+    model = load_lm_from_artifact(model_artifact)
 
     # load dataset
     dataset_artifact = wandb.use_artifact(cfg.data.artifact)

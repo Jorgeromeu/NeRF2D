@@ -3,11 +3,11 @@ from pathlib import Path
 from re import Pattern
 
 from tqdm import tqdm
+from wandb import CommError, Artifact
 from wandb.apis.public import Run, File
 
 from nerf2d import NeRF2D_LightningModule
 from nerf2d_dataset import NeRF2D_Datamodule
-from wandb import CommError, Artifact
 
 def example_train_run(api) -> Run:
     run: Run = api.run("romeu/NeRF2D/5x9fjp84")

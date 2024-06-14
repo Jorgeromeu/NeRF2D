@@ -96,6 +96,8 @@ def compare_runs(
     for ax in axs.flatten():
         ax.axis('off')
 
+    fig.text(0.5, 0.04, 'AAAAA', ha='center')
+
     if with_gt:
         # read ground_truth render
         axs[0, 0].set_title('GT')
@@ -148,3 +150,6 @@ def compare_runs(
             ax.imshow(density[0], cmap=depth_cmap)
 
     plt.tight_layout()
+
+def compare_runs_depth_exp(runs: list[RunWrapper], manager: RunDataManager, depth_cmap='gray'):
+    pass
