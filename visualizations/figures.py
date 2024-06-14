@@ -1,7 +1,42 @@
+from pathlib import Path
+
+import imageio
+import torch
+import torchvision.transforms.functional as TF
 from matplotlib import pyplot as plt
+from torch import Tensor
 from torchvision.io import read_image, ImageReadMode
 
-from wandb_utils import RunWrapper, RunDataManager, first_used_artifact_of_type
+from transform2d import Transform2D
+from visualizations.vis_rendering import nerf
+from wandb_utils import RunWrapper, RunDataManager, first_used_artifact_of_type, parse_run_file_name
+
+def make_gif_from_run(manager, run: RunWrapper, label, out_path: Path, duration=0.1):
+    files = manager.download_run_files_by_label(run, label)
+    file_names = sorted(files, key=lambda x: parse_run_file_name(x)['step'])
+
+    pil_ims = []
+    for path in file_names:
+        t = read_image(path, ImageReadMode.GRAY)
+        pil_im = TF.to_pil_image(t)
+        pil_ims.append(pil_im)
+
+    imageio.mimsave(out_path, pil_ims, duration=0.1)
+
+def poses_to_quiver(poses: Tensor):
+    c2ws = [Transform2D.from_matrix(c2w) for c2w in poses]
+    positions = torch.stack([c2w.translation() for c2w in c2ws])
+    angles = torch.stack([c2w.rotation() for c2w in c2ws])
+    dx = torch.cos(angles)
+    dy = torch.sin(angles)
+
+    xs = positions[:, 0]
+    ys = positions[:, 1]
+
+    return xs, ys, dx, dy
+
+    # pass
+    plt.quiver(positions[:, 0], positions[:, 1], d[:, 0], d[:, 1], color='tab:blue', label='test')
 
 def compare_runs(
         runs: list[RunWrapper],
@@ -36,7 +71,8 @@ def compare_runs(
 
         if with_depth:
             row += 1
-            gt_depth = read_image(manager.download_last_run_file_by_label(runs[0], 'val_depth_gt')[0], ImageReadMode.GRAY)
+            gt_depth = read_image(manager.download_last_run_file_by_label(runs[0], 'val_depth_gt')[0],
+                                  ImageReadMode.GRAY)
             axs[row, 0].imshow(gt_depth[0], cmap=depth_cmap)
 
     for i, run in enumerate(runs):

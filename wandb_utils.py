@@ -30,7 +30,7 @@ class RunWrapper:
     def get_files_by_label(self, label: str) -> list[File]:
         pattern = re.compile(r'.*/' + label + r'_(\d+).*\.png')
         files = self.get_files_by_regex(pattern)
-        files = sorted(files, key=lambda f: parse_file_name(Path(f.name))['step'])
+        files = sorted(files, key=lambda f: parse_run_file_name(Path(f.name))['step'])
         return files
 
     def get_last_file_by_label(self, label: str) -> list[File]:
@@ -89,7 +89,7 @@ class RunDataManager:
 
         return files
 
-def parse_file_name(file: Path):
+def parse_run_file_name(file: Path):
     label, step, _ = file.stem.rsplit('_', maxsplit=2)
     return {
         'label': label,
@@ -110,36 +110,18 @@ def first_used_artifact_of_type(run: Run, artifact_type: str) -> Artifact:
 
 # Use-case specific
 
-def get_artifact_dir_api(api, artifact_id: str):
-    artifact = api.artifact(artifact_id)
-    artifact_dir = Path(artifact.download())
-    return artifact_dir
-
-def get_model_checkpoint(artifact_dir: Path):
-    return artifact_dir / 'model.ckpt'
-
-def get_checkpoint_api(api, artifact_id: str):
-    artifact_dir = get_artifact_dir_api(api, artifact_id)
-    checkpoint = get_model_checkpoint(artifact_dir)
-    return checkpoint
-
-def load_from_checkpoint_api(api, artifact_id: str) -> NeRF2D_LightningModule:
-    checkpoint = get_checkpoint_api(api, artifact_id)
-    model = NeRF2D_LightningModule.load_from_checkpoint(checkpoint)
-    return model
-
 def get_ckpt(artifact: Artifact):
     path = Path(artifact.download())
     return path / 'model.ckpt'
 
-def load_lm(model_artifact: Artifact) -> NeRF2D_LightningModule:
+def load_lm_from_artifact(model_artifact: Artifact) -> NeRF2D_LightningModule:
     """
     Load a model from a model artifact
     """
     ckpt = get_ckpt(model_artifact)
     return NeRF2D_LightningModule.load_from_checkpoint(ckpt)
 
-def load_dm(data_artifact: Artifact, model_artifact: Artifact) -> NeRF2D_Datamodule:
+def load_dm_from_artifact(data_artifact: Artifact, model_artifact: Artifact) -> NeRF2D_Datamodule:
     """
     Load a datamodule from a data artifact and model artifact
     """
