@@ -11,7 +11,7 @@ from torchvision.io import read_image
 
 from camera_model_2d import pixel_center_rays
 
-def read_image_folder(path: Path):
+def read_image_folder(path: Path, t_far=6):
     with open(path / 'transforms.json') as f:
         transforms_json = json.load(f)
 
@@ -20,7 +20,7 @@ def read_image_folder(path: Path):
 
     # read images
     ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
-    # drop alpha channel and nromalize to floats
+    # drop alpha channel and normalize to floats
     ims = ims[:, :3, :, :] / 255
 
     focal = transforms_json['focal']
@@ -28,6 +28,9 @@ def read_image_folder(path: Path):
     depths = np.stack([np.load(path / f'cam-{i}.npz')['depth_map'] for i in range(len(poses))])
     depths = rearrange(depths, 'n h d -> n d h 1')
     depths = Tensor(depths)
+
+    # set -1 in depths to max value
+    depths[depths == -1] = t_far
 
     return ims, poses, focal, depths
 
@@ -83,13 +86,19 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
             batch_size=100,
             camera_subset=False,
             camera_subset_n=5,
+            t_far=6
     ):
         super().__init__()
 
         self.save_hyperparameters(ignore=['folder'])
 
+        train_folder = folder / 'train'
+        test_folder = folder / 'test'
+        val_folder = folder / 'val'
+
         # read training images and poses
-        self.train_ims, self.train_poses, self.train_focal, self.train_depths = read_image_folder(folder / 'train')
+        self.train_ims, self.train_poses, self.train_focal, self.train_depths = read_image_folder(train_folder,
+                                                                                                  t_far=t_far)
         self.train_height = self.train_ims.shape[2]
 
         if camera_subset:
@@ -99,21 +108,27 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
 
         self.train_dataset = NeRFDataset2D(self.train_ims, self.train_poses, self.train_focal, self.train_depths)
 
-        # sample n-random train_ims
-        idxs = np.random.choice(len(self.train_dataset), 10)
-
         # read test images and poses
-        self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(folder / 'test')
+        self.test_ims, self.test_poses, self.test_focal, self.test_depths = read_image_folder(test_folder,
+                                                                                              t_far=t_far)
         self.test_height = self.test_ims.shape[2]
         self.test_dataset = NeRFDataset2D(self.test_ims, self.test_poses, self.test_focal, self.test_depths)
+
+        # read val images and poses
+        self.val_ims, self.val_poses, self.val_focal, self.val_depths = read_image_folder(val_folder, t_far)
+        self.val_height = self.test_ims.shape[2]
+        self.val_dataset = NeRFDataset2D(self.val_ims, self.val_poses, self.val_focal, self.val_depths)
 
         # save additional hyperparams
         self.hparams.n_train_images = len(self.train_dataset)
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15,
-                          persistent_workers=True)
+        return DataLoader(self.train_dataset, batch_size=self.hparams.batch_size, num_workers=15,
+                          persistent_workers=True, shuffle=True)
 
     def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
+
+    def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
