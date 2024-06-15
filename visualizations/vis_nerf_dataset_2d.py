@@ -7,10 +7,14 @@ import rerun_util as ru
 from nerf2d_dataset import NeRFDataset2D, read_image_folder
 from transform2d import Transform2D
 
-folder = '/home/jorge/repos/NeRF2D/data/cube/train'
-# folder = '/home/jorge/cameras'
-image_width = 10
-ray_length = 1.6
+data_folder = Path('../data/')
+scene = 'bunny'
+split = 'test'
+
+folder = data_folder / scene / split
+n_rays = 2000
+shuffle = True
+sample = True
 
 # Load the dataset
 rr.init('vis_nerf_dataset_2d', spawn=True)
@@ -24,6 +28,22 @@ origins = torch.stack([ray[0] for ray in dataset])
 dirs = torch.stack([ray[1] for ray in dataset])
 colors = torch.stack([ray[2] for ray in dataset])
 depths = torch.Tensor([ray[3].item() for ray in dataset]).unsqueeze(-1)
+
+if shuffle:
+    # shuffle all arrays
+    perm = torch.randperm(len(origins))
+    origins = origins[perm]
+    dirs = dirs[perm]
+    colors = colors[perm]
+    depths = depths[perm]
+
+if sample:
+    origins = origins[:n_rays]
+    dirs = dirs[:n_rays]
+    colors = colors[:n_rays]
+    depths = depths[:n_rays]
+
+print(depths.max())
 
 rr.log(
     'rays',

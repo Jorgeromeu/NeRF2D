@@ -15,19 +15,36 @@ from nerf2d_dataset import NeRF2D_Datamodule
 # use project working directory
 rootutils.setup_root(__file__, indicator=".project-root", dotenv=True, pythonpath=True, cwd=True)
 
-@hydra.main(version_base=None, config_path='config', config_name='config')
+@hydra.main(version_base=None, config_path='config', config_name='train_config')
 def main(cfg: DictConfig):
+
+
+    if cfg.dry_run:
+        # print(OmegaConf.to_yaml(cfg))
+        return
+
     torch.set_float32_matmul_precision('high')
 
     # ensure reproducibility
     pl.seed_everything(cfg.seed)
 
+    if not cfg.dev_run:
+        wandb.init(project=cfg.wandb.project, job_type=cfg.wandb.job_type, name=cfg.wandb.get('run_name'))
+
+        # download dataset
+        dataset_artifact = wandb.use_artifact(cfg.data.artifact)
+        dataset_dir = Path(dataset_artifact.download())
+
+    if cfg.dev_run:
+        dataset_dir = Path('data/cube')
+
     # load dataset
     dm = NeRF2D_Datamodule(
-        folder=Path(cfg.data.folder),
+        folder=dataset_dir,
         batch_size=cfg.data.batch_size,
         camera_subset=cfg.data.camera_subset,
         camera_subset_n=cfg.data.camera_subset_n,
+        t_far=cfg.model.t_far,
     )
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
@@ -41,7 +58,7 @@ def main(cfg: DictConfig):
         log_model=True,
     )
 
-    checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='min', dirpath='checkpoints')
+    checkpoint_callback = ModelCheckpoint(monitor='val_loss', mode='max', dirpath='checkpoints', save_top_k=1)
     early_stopping = pl.callbacks.EarlyStopping('val_loss', patience=cfg.trainer.patience)
 
     trainer = pl.Trainer(
@@ -52,10 +69,14 @@ def main(cfg: DictConfig):
         log_every_n_steps=cfg.trainer.log_every_n_steps,
         logger=wandb_logger,
         callbacks=[checkpoint_callback, early_stopping],
+        fast_dev_run=cfg.dev_run,
+
     )
 
     # train
     trainer.fit(model, dm)
+    trainer.test(model, dm)
+
 
     wandb.finish()
 

@@ -1,0 +1,16 @@
+seed: 0
+dev_run: false
+
+wandb:
+  run_name: null
+  job_type: evaluation
+  project: NeRF2D
+
+trainer:
+  log_every_n_steps: 100
+
+data:
+  artifact: cube:latest
+
+model:
+  artifact:

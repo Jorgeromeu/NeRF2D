@@ -1,0 +1,26 @@
+program: train_nerf2d.py
+entity: romeu
+project: NeRF2D
+description: Depth experiment
+name: depth_experiment
+method: grid
+
+parameters:
+
+  # run for all datasets
+  data.artifact:
+    values: [ bunny:latest, cube:latest, cube_convex:latest ]
+
+  +view_sparsity:
+    values: [ 2_view, 5_view, 10_view, all_views ]
+
+
+  # run with and without depth supervision
+  model.use_depth_supervision:
+    values: [ true, false ]
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
