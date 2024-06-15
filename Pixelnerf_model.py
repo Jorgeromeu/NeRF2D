@@ -91,22 +91,22 @@ class NeRF(nn.Module):
         self.relu = nn.ReLU()
         self.sigmoid = nn.Sigmoid()
 
-        self.avgpool = nn.AvgPool1d(nr_images).cuda()
+        self.avgpool = nn.AvgPool1d(nr_images)
 
-        self.feature_layer = nn.Linear(if_hidden, d_hidden).cuda()
-        self.query_layers = [nn.Linear(d_x_enc + 2, d_hidden).cuda() for i in range(self.nr_images)]
+        self.feature_layer = nn.Linear(if_hidden, d_hidden)
+        self.query_layers = [nn.Linear(d_x_enc + 2, d_hidden) for i in range(self.nr_images)]
 
         # Create model layers
         self.layers = nn.ModuleList(
-            [nn.Linear(d_hidden + d_hidden, d_hidden).cuda()] +
-            [nn.Linear(d_hidden * 3, d_hidden) .cuda()if i + 1 in self.skip_indices else
-             nn.Linear(d_hidden, d_hidden).cuda()
+            [nn.Linear(d_hidden + d_hidden, d_hidden)] +
+            [nn.Linear(d_hidden * 3, d_hidden) if i + 1 in self.skip_indices else
+             nn.Linear(d_hidden, d_hidden)
              for i in range(n_layers - 1)])
 
 
         # maps to color, with viewdir
-        self.final_layer = nn.Linear(d_hidden, d_hidden // 2).cuda()
-        self.final_head = nn.Linear(d_hidden // 2, 4).cuda()
+        self.final_layer = nn.Linear(d_hidden, d_hidden // 2)
+        self.final_head = nn.Linear(d_hidden // 2, 4)
 
     def forward(
             self,
@@ -131,11 +131,11 @@ class NeRF(nn.Module):
             features = self.relu(self.feature_layer(cur_image_features))
             # 24 + 12
 
-            z = torch.cat([pos_enc, cur_dir], dim = 1).cuda()
+            z = torch.cat([pos_enc, cur_dir], dim = 1)
 
-            query = self.relu(self.query_layers[i](z)).cuda()
+            query = self.relu(self.query_layers[i](z))
 
-            z = torch.cat([features, query], dim=1).cuda()
+            z = torch.cat([features, query], dim=1)
 
             j = z
 

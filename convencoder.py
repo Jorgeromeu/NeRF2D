@@ -15,14 +15,14 @@ class FeatureExtractor(nn.Module):
         self.conv1 = nn.Conv1d(in_channels=3, out_channels=10, kernel_size=3, stride=1, padding=1)
         torch.nn.init._no_grad_normal_(self.conv1.weight, 0, 1)
 
-        self.bn1 = nn.BatchNorm1d(500)
+        self.bn1 = nn.BatchNorm1d(100)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool1d(kernel_size=3, stride=1, padding=1)
 
         # Defining layers (layer1, layer2, layer3) as examples
-        self.layer1 = self._make_layer(10, 20, 2, 500)
-        self.layer2 = self._make_layer(20, 40, 2, 500)
-        self.layer3 = self._make_layer(40, 50, 2, 500)
+        self.layer1 = self._make_layer(10, 20, 2, 100)
+        self.layer2 = self._make_layer(20, 40, 2, 100)
+        self.layer3 = self._make_layer(40, 50, 2, 100)
 
         for param in self.conv1.parameters():
             param.requires_grad = False

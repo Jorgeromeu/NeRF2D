@@ -24,12 +24,12 @@ def read_image_folder(path: Path):
     # read images
     ims = torch.stack([read_image(str(path / f'cam-{i}.png')) for i in range(len(poses))])
 
-    if path.name == 'train':
-        # TODO: remove
-        indices = np.arange(0, 50, 10)
-        poses = poses[indices]
-        # read images
-        ims = torch.stack([read_image(str(path / f'cam-{10 * i}.png')) for i in range(len(poses))])
+    # if path.name == 'train':
+    #     # TODO: remove
+    #     indices = np.arange(0, 50, 10)
+    #     poses = poses[indices]
+    #     # read images
+    #     ims = torch.stack([read_image(str(path / f'cam-{10 * i}.png')) for i in range(len(poses))])
     # drop alpha channel and nromalize to floats
     ims = ims[:, :3, :, :] / 255
 
@@ -92,7 +92,7 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
             self, folder: Path,
             batch_size=100,
             camera_subset=False,
-            camera_subset_n=5,
+            camera_subset_n=3,
     ):
         super().__init__()
 
@@ -122,8 +122,7 @@ class NeRF2D_Datamodule(pl.LightningDataModule):
         self.hparams.image_resolution = self.train_dataset.image_resolution
 
     def train_dataloader(self):
-        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size, num_workers=15,
-                          persistent_workers=True)
+        return DataLoader(self.train_dataset, shuffle=True, batch_size=self.hparams.batch_size)
 
     def val_dataloader(self):
-        return DataLoader(self.test_dataset, batch_size=self.test_height, num_workers=15, persistent_workers=True)
+        return DataLoader(self.test_dataset, batch_size=self.test_height)

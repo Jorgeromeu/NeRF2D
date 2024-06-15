@@ -16,9 +16,9 @@ trainer:
 
 data:
   folder: data/cube
-  batch_size: 1000
+  batch_size: 100
   camera_subset: true
-  camera_subset_n: 5
+  camera_subset_n: 6
 
 model:
   t_near: 1.5

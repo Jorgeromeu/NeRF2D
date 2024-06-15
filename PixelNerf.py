@@ -8,42 +8,32 @@ import json
 from torchvision.io import read_image
 from imageencoder import ImageEncoder
 import numpy as np
+from torchmetrics.image import PeakSignalNoiseRatio
+
 
 
 from camera_model_2d import pixel_center_rays, project, transform_p, transform_d
 
 import wandb
 from Pixelnerf_model import NeRF
+from nerf2d_dataset import get_n_evenly_spaced_views, read_image_folder
 
-def read_image_folder(path: Path):
-    with open(path / 'transforms.json') as f:
-        transforms_json = json.load(f)
 
-    # read poses
-    poses = torch.stack([torch.Tensor(frame_data['transform_matrix']) for frame_data in transforms_json['frames']])
 
-    #TODO: remove
-    indices = np.arange(0, 50, 10)
-    poses = poses[indices]
-    # read images
-    ims = torch.stack([read_image(str(path / f'cam-{10 * i}.png')) for i in range(len(poses))])
-    # drop alpha channel and nromalize to floats
-    ims = ims[:, :3, :, :] / 255
 
-    focal = transforms_json['focal']
 
-    return ims, poses, focal
 
 
 def get_exact_pixels(points):
     points = torch.round(points)
-    points[points > 249] = 250
-    points[points < -250] = 250
-    points = points + 250
+    points[points > 49] = 50
+    points[points < -50] = 50
+    points = points + 50
 
-    points[points < 500] -= 499
+    points[points < 100] -= 99
     points = abs(points)
     return points
+
 
 
 class ProjectCoordinate:
@@ -134,7 +124,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
             t_far=6.,
             n_steps=64,
             chunk_size=30000,
-            n_gt_poses=100
+            n_gt_poses=100,
+            depth_loss_weight=0.5,
+            depth_sigma=0.1,
+            use_depth_supervision=True,
     ):
 
         super().__init__()
@@ -146,8 +139,13 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # metrics
         self.criterion = torch.nn.MSELoss()
-        folder = Path('./data/cube/')
-        train_ims, train_poses, train_focal = read_image_folder(folder / 'train')
+        folder = Path('data/cube/')
+        train_ims, train_poses, train_focal, _ = read_image_folder(folder / 'train')
+
+
+        #TODO: hardcoded
+        train_ims = get_n_evenly_spaced_views(train_ims, 6)
+
         self.coordinateProjector = ProjectCoordinate(image_resolution=train_ims.shape[2], poses=train_poses, focal_length=train_focal)
         self.feature_maps = []
         image_model = ImageEncoder()
@@ -158,7 +156,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
             # Copy the values from the original tensor into the new tensor starting from the second row
             features_padded[:, : - 1] = features
-            features_padded = torch.tensor(features_padded).float().cuda()
+            features_padded = torch.tensor(features_padded).float()
             self.feature_maps.append(features_padded)
 
         self.model = NeRF(
@@ -170,8 +168,10 @@ class NeRF2D_LightningModule(pl.LightningModule):
             d_hidden=d_hidden,
             skip_indices=[n_layers // 2],
             if_hidden = 120,
-            nr_images = 5
+            nr_images = len(self.feature_maps)
         )
+        self.val_psnr = PeakSignalNoiseRatio()
+
 
 
 
@@ -191,7 +191,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # compute query points for each ray
         query_points = origins[:, None, :] + directions[:, None, :] * ts[None, :, None]
-        directions_repeat  = directions.unsqueeze(1).expand(-1, 100, -1)
+        directions_repeat  = directions.unsqueeze(1).expand(-1, 300, -1)
 
 
         image_features, proj_points_list, directions_list = self.sample_features(query_points, directions_repeat)
@@ -214,31 +214,31 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
             pixels, proj_points, proj_directions = self.coordinateProjector.project_coordinates_1d(points_flat, directions_flat,  i)
 
-            int_pixels = pixels.squeeze().int().cuda()
+            int_pixels = pixels.squeeze().int()
 
             proj_points_list.append(proj_points)
 
             directions_list.append(proj_directions)
 
 
-            image_features.append(self.feature_maps[i][:, int_pixels.cuda()].cuda())
+            image_features.append(self.feature_maps[i][:, int_pixels])
 
         return image_features, proj_points_list, directions_list
 
 
-
-    def query_network_chunked(self, query_points: Tensor):
-
-        if query_points.shape[0] <= self.hparams.chunk_size:
-            return self.model(query_points, None)
-
-        n_chunks = len(query_points) // self.hparams.chunk_size + 1
-        chunks = torch.chunk(query_points, n_chunks, dim=0)
-
-        outputs = []
-        for chunk in chunks:
-            out = self.model(chunk)
-            outputs.append(out)
+    #
+    # def query_network_chunked(self, query_points: Tensor):
+    #
+    #     if query_points.shape[0] <= self.hparams.chunk_size:
+    #         return self.model(query_points, None)
+    #
+    #     n_chunks = len(query_points) // self.hparams.chunk_size + 1
+    #     chunks = torch.chunk(query_points, n_chunks, dim=0)
+    #
+    #     outputs = []
+    #     for chunk in chunks:
+    #         out = self.model(chunk)
+    #         outputs.append(out)
 
         return torch.cat(outputs, dim=0)
 
@@ -269,7 +269,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # render colors by weighting samples
         rendered_colors = einsum(weights, colors, 'n t, n t c -> n c')
 
-        return rendered_colors
+        return rendered_colors, weights, ts
 
     def render_view(self, height: int, focal_length_px: float, c2w: Tensor):
         """
@@ -292,9 +292,9 @@ class NeRF2D_LightningModule(pl.LightningModule):
         return colors_im
 
     def training_step(self, batch, batch_idx):
-        origins, directions, colors = batch
+        origins, directions, colors, depth_gt = batch
         # forward pass
-        colors_pred = self(origins, directions)
+        colors_pred, weights, ts = self(origins, directions)
 
         # compute loss
         loss = self.criterion(colors_pred, colors)
@@ -302,15 +302,24 @@ class NeRF2D_LightningModule(pl.LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx):
-        origins, directions, colors = batch
-        # forward pass
-        colors_pred = self(origins, directions)
 
+        origins, directions, colors_gt, depth_gt = batch
+
+        # forward pass
+        colors_pred, weights, ts = self(origins, directions)
+
+        # save rendered views for logging
         self.rendered_views.append(colors_pred)
 
-        # compute loss
-        loss = self.criterion(colors_pred, colors)
+        # compute losses
+        loss = self.criterion(colors_pred, colors_gt)
+
         self.log('val_loss', loss)
+
+
+        # log psnr
+        self.log('val_psnr', self.val_psnr(colors_pred, colors_gt))
+
         return loss
 
     def configure_optimizers(self):
@@ -340,7 +349,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         gt_views = []
         for batch in val_dataloader:
-            _, _, colors = batch
+            _, _, colors, _ = batch
             gt_views.append(colors)
 
         gt_all = torch.stack(gt_views, dim=1).detach().cpu()

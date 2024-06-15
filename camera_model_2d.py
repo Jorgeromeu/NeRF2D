@@ -11,7 +11,7 @@ def embed_homog(points: Tensor):
     :param points: N, D tensor
     :return: N, D+1 tensor
     """
-    p_homog = torch.cat([points.cuda(), torch.ones(points.shape[0], 1).cuda()], dim=1)
+    p_homog = torch.cat([points, torch.ones(points.shape[0], 1)], dim=1)
     return p_homog
 
 def unembed_homog(points: Tensor):
@@ -102,7 +102,7 @@ def project(points: Tensor, focal_length: float, w2c: Tensor):
     # embed points to 2D homogeneous space
     p_homog = embed_homog(points)
     # apply matrix to points
-    p_projected_homog = p_homog.cuda() @ matrix.T.cuda()
+    p_projected_homog = p_homog @ matrix.T
     # unembed to 1D coordinates
     p_projected = unembed_homog(p_projected_homog)
 
@@ -119,7 +119,7 @@ def transform_p(points: Tensor, w2c: Tensor):
     # embed points to 2D homogeneous space
     p_homog = embed_homog(points)
     # apply matrix to points
-    p_projected_homog = p_homog.cuda() @ w2c.T.cuda()
+    p_projected_homog = p_homog @ w2c.T
     # unembed to 1D coordinates
     p_projected = unembed_homog(p_projected_homog)
 
@@ -134,7 +134,7 @@ def transform_d(direction: Tensor, w2c: Tensor):
     matrix = Transform2D.from_matrix(w2c).rotation_matrix()
 
    # apply matrix to points
-    d_projected = direction.cuda() @ matrix.T.cuda()
+    d_projected = direction @ matrix.T
 
     return d_projected
 

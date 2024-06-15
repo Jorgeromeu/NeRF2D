@@ -23,8 +23,12 @@ def main(cfg: DictConfig):
     pl.seed_everything(cfg.seed)
 
     # load dataset
-    dm = NeRF2D_Datamodule(folder=Path('./data/cube/'), batch_size=cfg.data.batch_size)
-
+    dm = NeRF2D_Datamodule(
+        folder=Path(cfg.data.folder),
+        batch_size=cfg.data.batch_size,
+        camera_subset=cfg.data.camera_subset,
+        camera_subset_n=cfg.data.camera_subset_n,
+    )
     # load model
     model = NeRF2D_LightningModule(**cfg.model)
 
