@@ -13,6 +13,7 @@ import numpy as np
 from camera_model_2d import pixel_center_rays
 
 def read_image_folder(path: Path, t_far=6):
+    print('path', path)
     with open(path / 'transforms.json') as f:
         transforms_json = json.load(f)
 

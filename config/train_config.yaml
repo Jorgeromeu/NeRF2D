@@ -18,7 +18,7 @@ trainer:
 
 data:
   artifact: cube:latest
-  batch_size: 1000
+  batch_size: 10000
   camera_subset: true
   camera_subset_n: 6
 

@@ -151,7 +151,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         # metrics
         self.criterion = torch.nn.MSELoss()
-        folder = Path('data/cube/')
+        folder = Path('/teamspace/studios/this_studio/NeRF2D/artifacts/cube:v0')
         train_ims, train_poses, train_focal, _ = read_image_folder(folder / 'train')
 
 
