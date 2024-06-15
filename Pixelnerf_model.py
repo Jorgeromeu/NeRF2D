@@ -94,7 +94,8 @@ class NeRF(nn.Module):
         self.avgpool = nn.AvgPool1d(nr_images)
 
         self.feature_layer = nn.Linear(if_hidden, d_hidden)
-        self.query_layers = [nn.Linear(d_x_enc + 2, d_hidden) for i in range(self.nr_images)]
+        # print('check', self.feature_layer.device)
+        self.query_layers = [nn.Linear(d_x_enc + 2, d_hidden).to('cuda') for i in range(self.nr_images)]
 
         # Create model layers
         self.layers = nn.ModuleList(
@@ -124,16 +125,29 @@ class NeRF(nn.Module):
         for i in range(len(image_features)):
             pos_enc = self.pos_pe(x[i])
             cur_dir = d[i]
+
+            # print('pos', pos_enc.device)
+            # print('cur_dir', cur_dir.device)
+
             # dir_enc = self.dir_pe(d[i])
 
             cur_image_features = rearrange(image_features[i], 'a b -> b a')
+            # print('cur_img', cur_image_features.device)
+
             # check_image_features = np.numpy(cur_image_features)
             features = self.relu(self.feature_layer(cur_image_features))
+            # print('features', features.device)
+
             # 24 + 12
 
             z = torch.cat([pos_enc, cur_dir], dim = 1)
+            # print('z', z.device)
+
+            # print('ascmklasc', self.query_layers[i].weight.device)
+
 
             query = self.relu(self.query_layers[i](z))
+            # print('q', query.device)
 
             z = torch.cat([features, query], dim=1)
 

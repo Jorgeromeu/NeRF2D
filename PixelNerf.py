@@ -64,14 +64,15 @@ class ProjectCoordinate:
         Returns:
         torch.Tensor: The projected 1D coordinates (N).
         """
-        c2w = self.c2ws[camera_index]
+        c2w = self.c2ws[camera_index].to(xy_coords)
+        # print('sackascjnkscjnkajnkasc', c2w.device)
 
 
-        projected_points = project(xy_coords, self.focal_length, c2w.inverse())
+        projected_points = project(xy_coords, self.focal_length, c2w.inverse().to(xy_coords))
 
-        points = transform_p(xy_coords, c2w.inverse())
+        points = transform_p(xy_coords, c2w.to(xy_coords))
 
-        directions = transform_d(directions, c2w.inverse())
+        directions = transform_d(directions, c2w.to(xy_coords))
 
         pixels = get_exact_pixels(projected_points)
         pixels = pixels.int()
@@ -160,7 +161,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
         self.coordinateProjector = ProjectCoordinate(image_resolution=train_ims.shape[2], poses=train_poses, focal_length=train_focal)
         self.feature_maps = []
-        image_model = ImageEncoder()
+        image_model = ImageEncoder().to(self.device)
         for train_im in train_ims:
             train_im_d = train_im.squeeze(-1)
             features = image_model.forward(train_im_d)
@@ -168,8 +169,8 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
             # Copy the values from the original tensor into the new tensor starting from the second row
             features_padded[:, : - 1] = features
-            features_padded = torch.tensor(features_padded).float()
-            self.feature_maps.append(features_padded)
+            features_padded = torch.tensor(features_padded).float().to(self.device)
+            self.feature_maps.append(features_padded.to(self.device))
 
         self.model = NeRF(
             d_pos_input=2,
@@ -181,7 +182,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
             skip_indices=[n_layers // 2],
             if_hidden = 120,
             nr_images = len(self.feature_maps)
-        )
+        ).to(self.device)
         self.val_psnr = PeakSignalNoiseRatio()
 
 
@@ -226,14 +227,17 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
             pixels, proj_points, proj_directions = self.coordinateProjector.project_coordinates_1d(points_flat, directions_flat,  i)
 
-            int_pixels = pixels.squeeze().int()
+            int_pixels = pixels.squeeze().int().to(self.device)
 
             proj_points_list.append(proj_points)
 
             directions_list.append(proj_directions)
 
+            # print( 'nkascjnkscajnk', type(int_pixels))
+            # print(int_pixels.device)
 
-            image_features.append(self.feature_maps[i][:, int_pixels])
+
+            image_features.append(self.feature_maps[i].to(self.device)[:, int_pixels])
 
         return image_features, proj_points_list, directions_list
 
@@ -252,10 +256,17 @@ class NeRF2D_LightningModule(pl.LightningModule):
         # query points
         proj_points_list, ts, image_features, query_points, directions_list = self.compute_query_points(origins, directions)
 
-        # TODO query network in chunks
+        # TODO query network in 
+        
+        # print('device0', proj_points_list[0].device)
+        # print('device1', directions_list[0].device)
+
+        # print('device2', image_features[0].device)
+        # print('model', next(self.model.parameters()).device)
         outputs_flat = self.model(proj_points_list, directions_list, image_features)
 
         outputs = rearrange(outputs_flat, '(n t) c -> n t c', n=origins.shape[0])
+
         colors = outputs[:, :, 0:3]
         densities = outputs[:, :, 3]
 
@@ -294,27 +305,27 @@ class NeRF2D_LightningModule(pl.LightningModule):
             'depth': depth_im
         }
 
-    def render_density_field(self, res=100, lo=-1.5, hi=1.5):
+    # def render_density_field(self, res=100, lo=-1.5, hi=1.5):
 
-        # densely sample field
-        xs = torch.linspace(lo, hi, res)
-        ys = torch.linspace(hi, lo, res)
+    #     # densely sample field
+    #     xs = torch.linspace(lo, hi, res)
+    #     ys = torch.linspace(hi, lo, res)
 
-        x, y = torch.meshgrid(xs, ys, indexing='xy')
-        coords = torch.stack([x, y], dim=-1)
-        coords_flat = rearrange(coords, 'h w c -> (h w) c')
+    #     x, y = torch.meshgrid(xs, ys, indexing='xy')
+    #     coords = torch.stack([x, y], dim=-1)
+    #     coords_flat = rearrange(coords, 'h w c -> (h w) c')
 
-        # random viewdirs, only care about density
-        dirs = torch.randn(coords_flat.shape[0], 1).to()
+    #     # random viewdirs, only care about density
+    #     dirs = torch.randn(coords_flat.shape[0], 1).to()
 
-        # query MLP
-        with torch.no_grad():
-            densities = self.model(coords_flat.to(self.device), dirs.to(self.device))[:, -1]
+    #     # query MLP
+    #     with torch.no_grad():
+    #         densities = self.model(coords_flat.to(self.device), dirs.to(self.device))[:, -1]
 
-        densities = rearrange(densities, '(h w) -> h w', h=res)
-        densities = (densities - densities.min()) / (densities.max() - densities.min())
+    #     densities = rearrange(densities, '(h w) -> h w', h=res)
+    #     densities = (densities - densities.min()) / (densities.max() - densities.min())
 
-        return densities
+    #     return densities
 
 
     def training_step(self, batch, batch_idx):
@@ -362,7 +373,7 @@ class NeRF2D_LightningModule(pl.LightningModule):
 
     def on_validation_epoch_end(self) -> None:
         self.log_views('val_renders', self.val_renders)
-        # self.log_views('val_depths', self.val_depths)
+        self.log_views('val_depths', self.val_depths)
         # self.log_density_field()
 
     def on_validation_epoch_start(self) -> None:
@@ -373,12 +384,12 @@ class NeRF2D_LightningModule(pl.LightningModule):
     def on_train_start(self) -> None:
         gt_views, gt_depth = self.get_gt_views(self.trainer.val_dataloaders)
         self.log_views('val_renders_gt', gt_views)
-        # self.log_views('val_depth_gt', gt_depth)
+        self.log_views('val_depth_gt', gt_depth)
 
     def on_test_start(self) -> None:
         gt_views, gt_depth = self.get_gt_views(self.trainer.test_dataloaders)
         self.log_views('test_renders_gt', gt_views)
-        # self.log_views('test_depth_gt', gt_depth)
+        self.log_views('test_depth_gt', gt_depth)
 
     def get_gt_views(self, dataloader):
 

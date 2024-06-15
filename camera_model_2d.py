@@ -11,7 +11,7 @@ def embed_homog(points: Tensor):
     :param points: N, D tensor
     :return: N, D+1 tensor
     """
-    p_homog = torch.cat([points, torch.ones(points.shape[0], 1)], dim=1)
+    p_homog = torch.cat([points, torch.ones(points.shape[0], 1).to(points)], dim=1)
     return p_homog
 
 def unembed_homog(points: Tensor):
@@ -97,7 +97,7 @@ def project(points: Tensor, focal_length: float, w2c: Tensor):
 
     # construct matrix
     proj_matrix = projection_matrix(focal_length)
-    matrix = proj_matrix @ w2c
+    matrix = proj_matrix.to(w2c) @ w2c
 
     # embed points to 2D homogeneous space
     p_homog = embed_homog(points)
